@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { SetCards } from '@mtg/shared';
-import { EMPTY_LOBBY_TTL_MS, MAX_ROOMS, RoomError, RoomManager, ROOM_TTL_MS, type Room } from '../src/rooms/manager';
+import { InvalidPickError } from '../src/draft/engine';
+import {
+  EMPTY_LOBBY_TTL_MS,
+  MAX_ROOMS,
+  RoomError,
+  RoomManager,
+  ROOM_TTL_MS,
+  seatIndexOf,
+  type HumanSeat,
+  type Room,
+} from '../src/rooms/manager';
 import { FakeClock, makeSet } from './helpers';
 
 const SET = makeSet();
@@ -117,5 +127,102 @@ describe('RoomManager lobby', () => {
     clock.advance(ROOM_TTL_MS);
     expect(manager.sweep()).toBe(1);
     expect(manager.size).toBe(0);
+  });
+});
+
+function pickFirst(m: RoomManager, room: Room, player: HumanSeat) {
+  const i = seatIndexOf(room, player.playerId);
+  m.pick(room.id, player.playerId, room.state!.current[i][0].instanceId);
+}
+
+async function twoPlayerRoom(timerSeconds: number | null = null) {
+  const ctx = setup();
+  const { room, player: ann } = await createAnn(ctx.manager, timerSeconds);
+  const { player: bob } = ctx.manager.joinRoom({ code: room.code, name: 'Bob', socketId: 's-bob' });
+  return { ...ctx, room, ann, bob };
+}
+
+const noBasics = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+
+describe('RoomManager drafting', () => {
+  it('only the host can start, and only once', async () => {
+    const { manager, room, ann, bob } = await twoPlayerRoom();
+    expect(() => manager.startRoom(room.id, bob.playerId)).toThrow('Only the host can start the draft');
+    manager.startRoom(room.id, ann.playerId);
+    expect(room.phase).toBe('drafting');
+    expect(() => manager.startRoom(room.id, ann.playerId)).toThrow('Draft already started');
+    expect(() => manager.joinRoom({ code: room.code, name: 'Late', socketId: 'x' })).toThrow('Draft already started');
+  });
+
+  it('seats every human once and fills the rest with bots', async () => {
+    const { manager, room, ann, bob } = await twoPlayerRoom();
+    manager.startRoom(room.id, ann.playerId);
+    expect(room.seats).toHaveLength(8);
+    expect(room.seats.filter((s) => s.kind === 'bot')).toHaveLength(6);
+    expect(seatIndexOf(room, ann.playerId)).toBeGreaterThanOrEqual(0);
+    expect(seatIndexOf(room, bob.playerId)).toBeGreaterThanOrEqual(0);
+    expect(room.state!.current.every((p) => p.length === 15)).toBe(true);
+  });
+
+  it('waits for every human before bots pick and packs pass', async () => {
+    const { manager, room, ann, bob, changes } = await twoPlayerRoom();
+    manager.startRoom(room.id, ann.playerId);
+    changes.length = 0;
+    pickFirst(manager, room, ann);
+    expect(room.round).toBe(0);
+    expect(room.state!.picks.filter((p) => p.length === 1)).toHaveLength(1);
+    expect(changes).toEqual([room]);
+    pickFirst(manager, room, bob);
+    expect(room.round).toBe(1);
+    expect(room.state!.picks.every((p) => p.length === 1)).toBe(true);
+    expect(room.state!.current.every((p) => p.length === 14)).toBe(true);
+  });
+
+  it('rejects invalid picks without changing state', async () => {
+    const { manager, room, ann } = await twoPlayerRoom();
+    manager.startRoom(room.id, ann.playerId);
+    const before = room.state;
+    expect(() => manager.pick(room.id, ann.playerId, 'nope')).toThrow(InvalidPickError);
+    expect(room.state).toBe(before);
+  });
+
+  it('completes after 45 rounds', async () => {
+    const { manager, room, ann, bob } = await twoPlayerRoom();
+    manager.startRoom(room.id, ann.playerId);
+    for (let i = 0; i < 45; i++) {
+      pickFirst(manager, room, ann);
+      pickFirst(manager, room, bob);
+    }
+    expect(room.phase).toBe('complete');
+    expect(room.state!.picks.every((p) => p.length === 45)).toBe(true);
+    expect(() => manager.pick(room.id, ann.playerId, 'x')).toThrow(InvalidPickError);
+  });
+
+  it('starts practice rooms immediately with no timer', async () => {
+    const { manager } = setup();
+    const { room, player } = await manager.createRoom({ name: 'Ann', setCode: 'tst', timerSeconds: 60, practice: true, socketId: 's' });
+    expect(room).toMatchObject({ practice: true, timerSeconds: null, phase: 'drafting' });
+    expect(room.seats.filter((s) => s.kind === 'human')).toEqual([player]);
+    for (let i = 0; i < 45; i++) pickFirst(manager, room, player);
+    expect(room.phase).toBe('complete');
+  });
+
+  it('saves decks per player against their own pool', async () => {
+    const { manager, room, ann, bob } = await twoPlayerRoom();
+    manager.startRoom(room.id, ann.playerId);
+    expect(() => manager.saveDeck(room.id, ann.playerId, { main: [], basics: noBasics })).toThrow('Draft is not complete');
+    for (let i = 0; i < 45; i++) {
+      pickFirst(manager, room, ann);
+      pickFirst(manager, room, bob);
+    }
+    const annPool = room.state!.picks[seatIndexOf(room, ann.playerId)].map((c) => c.instanceId);
+    const bobPool = room.state!.picks[seatIndexOf(room, bob.playerId)].map((c) => c.instanceId);
+    manager.saveDeck(room.id, ann.playerId, { main: annPool.slice(0, 23), basics: { ...noBasics, G: 17 } });
+    expect(room.decks.get(ann.playerId)?.main).toHaveLength(23);
+    expect(() => manager.saveDeck(room.id, ann.playerId, { main: [bobPool[0]], basics: noBasics })).toThrow(
+      'Deck contains cards that are not in your pool',
+    );
+    expect(() => manager.saveDeck(room.id, bob.playerId, { main: [], basics: { ...noBasics, R: -1 } })).toThrow('Invalid basic land counts');
+    expect(() => manager.saveDeck(room.id, bob.playerId, null)).toThrow('Invalid deck');
   });
 });

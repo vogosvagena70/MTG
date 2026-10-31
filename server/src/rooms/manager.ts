@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { TIMER_OPTIONS, type DeckSavePayload, type SetCards } from '@mtg/shared';
-import type { DraftState } from '../draft/engine';
+import { COLORS, TIMER_OPTIONS, type DeckSavePayload, type SetCards } from '@mtg/shared';
+import { botPick } from '../bots/botPick';
+import { advanceIfReady, applyPick, createDraft, InvalidPickError, ROUNDS, type DraftState } from '../draft/engine';
+import { generatePack } from '../packs/generatePack';
 import { mulberry32, type Rng } from '../rng';
 import { generateCode, newToken, normalizeCode, sanitizeName, uniqueName } from './identity';
 import { realScheduler, type Scheduler } from './scheduler';
@@ -68,6 +70,19 @@ function parseTimer(raw: unknown): number | null {
   throw new RoomError('Invalid pick timer');
 }
 
+export function seatIndexOf(room: Room, playerId: string): number {
+  return room.seats.findIndex((s) => s.kind === 'human' && s.playerId === playerId);
+}
+
+function shuffle<T>(items: T[], rng: Rng): T[] {
+  const a = items.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export class RoomManager {
   onChange: (room: Room) => void;
   private rooms = new Map<string, Room>();
@@ -129,7 +144,8 @@ export class RoomManager {
       graceTimers: new Map(),
     };
     this.rooms.set(room.id, room);
-    this.onChange(room); // PRACTICE-START (replaced in Task 3)
+    if (practice) this.begin(room);
+    else this.onChange(room);
     return { room, player: host };
   }
 
@@ -195,6 +211,46 @@ export class RoomManager {
     }
   }
 
+  startRoom(roomId: string, playerId: string): void {
+    const room = this.get(roomId);
+    if (room.phase !== 'lobby') throw new RoomError('Draft already started');
+    if (room.hostPlayerId !== playerId) throw new RoomError('Only the host can start the draft');
+    this.begin(room);
+  }
+
+  pick(roomId: string, playerId: string, instanceId: string): void {
+    const room = this.get(roomId);
+    if (room.phase !== 'drafting' || !room.state) throw new InvalidPickError('Draft is not in progress');
+    const seat = seatIndexOf(room, playerId);
+    if (seat < 0) throw new InvalidPickError('You are not seated in this draft');
+    room.state = applyPick(room.state, seat, instanceId); // throws before mutating
+    this.advance(room);
+  }
+
+  saveDeck(roomId: string, playerId: string, deck: unknown): void {
+    const room = this.get(roomId);
+    if (!deck || typeof deck !== 'object') throw new RoomError('Invalid deck');
+    if (room.phase !== 'complete' || !room.state) throw new RoomError('Draft is not complete');
+    const seat = seatIndexOf(room, playerId);
+    if (seat < 0) throw new RoomError('You are not seated in this draft');
+    const { main, basics } = deck as { main?: unknown; basics?: unknown };
+    const pool = new Set(room.state.picks[seat].map((c) => c.instanceId));
+    if (
+      !Array.isArray(main) ||
+      !main.every((id) => typeof id === 'string' && pool.has(id)) ||
+      new Set(main).size !== main.length
+    ) {
+      throw new RoomError('Deck contains cards that are not in your pool');
+    }
+    const counts = {} as DeckSavePayload['basics'];
+    for (const c of COLORS) {
+      const n = (basics as Record<string, unknown> | null | undefined)?.[c];
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) throw new RoomError('Invalid basic land counts');
+      counts[c] = n;
+    }
+    room.decks.set(playerId, { main: [...(main as string[])], basics: counts });
+  }
+
   get(roomId: string): Room {
     const room = this.rooms.get(roomId);
     if (!room) throw new RoomError('Room not found or expired');
@@ -225,6 +281,56 @@ export class RoomManager {
   }
 
   // ---- internals ----
+
+  private begin(room: Room): void {
+    const order = shuffle(
+      Array.from({ length: SEATS }, (_, i) => i),
+      room.rng,
+    );
+    const seats: Seat[] = Array.from({ length: SEATS }, () => ({ kind: 'bot' }) as BotSeat);
+    room.players.forEach((p, i) => {
+      seats[order[i]] = p;
+    });
+    const packs = Array.from({ length: SEATS }, () =>
+      Array.from({ length: ROUNDS }, () => generatePack(room.set, room.rng)),
+    );
+    room.seats = seats;
+    room.state = createDraft(SEATS, packs);
+    room.phase = 'drafting';
+    room.round = 0;
+    this.touch(room);
+    this.beginRound(room);
+    this.onChange(room);
+  }
+
+  // Timers are added in Task 4.
+  private beginRound(room: Room): void {
+    room.pickDeadline = null;
+  }
+
+  /** After any pick: once every human has picked, bots pick and packs pass. */
+  private advance(room: Room): void {
+    const current = room.state!;
+    const humansDone = room.seats.every((s, i) => s.kind === 'bot' || current.pickedThisTurn[i]);
+    if (!humansDone) {
+      this.onChange(room);
+      return;
+    }
+    let st = current;
+    room.seats.forEach((s, i) => {
+      if (s.kind === 'bot') st = applyPick(st, i, botPick(st.current[i], st.picks[i], room.rng));
+    });
+    room.state = advanceIfReady(st);
+    room.round++;
+    this.clearTimers(room);
+    if (room.state.complete) {
+      room.phase = 'complete';
+      room.pickDeadline = null;
+    } else {
+      this.beginRound(room);
+    }
+    this.onChange(room);
+  }
 
   private newPlayer(name: string, socketId: string): HumanSeat {
     return { kind: 'human', playerId: randomUUID(), name, token: newToken(), socketId };
