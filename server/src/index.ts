@@ -1,12 +1,21 @@
 import { fileURLToPath } from 'node:url';
 import { createScryfallClient } from './cards/client';
 import { createCardSource } from './cards/source';
-import { RoomManager } from './rooms/RoomManager';
+import { RoomManager } from './rooms/manager';
 import { createDraftServer } from './server';
 
 const cacheDir = fileURLToPath(new URL('../.cache', import.meta.url));
 const source = createCardSource({ client: createScryfallClient(), cacheDir });
-const manager = new RoomManager({ getSetCards: (code) => source.getSetCards(code) });
+const manager = new RoomManager({
+  getSetCards: (code) => source.getSetCards(code),
+  getSetName: async (code) => {
+    try {
+      return (await source.listDraftableSets()).find((s) => s.code === code)?.name;
+    } catch {
+      return undefined;
+    }
+  },
+});
 const { httpServer } = createDraftServer({ manager, listSets: () => source.listDraftableSets() });
 
 setInterval(() => manager.sweep(), 60_000).unref();

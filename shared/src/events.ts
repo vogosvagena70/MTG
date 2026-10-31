@@ -1,17 +1,29 @@
-import type { Card, DeckSavePayload, SeatView, SetInfo } from './types';
+import type { Card, DeckSavePayload, DraftStatePayload, LobbyView, SessionInfo, SetInfo } from './types';
 
-export type SetsListResult = { ok: true; sets: SetInfo[] } | { ok: false; message: string };
+export type Ack<T extends object = Record<never, never>> = ({ ok: true } & T) | { ok: false; message: string };
+export type SetsListResult = Ack<{ sets: SetInfo[] }>;
+
+export interface CreateRoomPayload {
+  name: string;
+  setCode: string;
+  timerSeconds: number | null;
+  practice?: boolean;
+}
 
 export interface ClientToServerEvents {
   'sets:list': (ack: (res: SetsListResult) => void) => void;
-  'practice:start': (p: { setCode: string }) => void;
+  'room:create': (p: CreateRoomPayload, ack: (res: Ack<SessionInfo>) => void) => void;
+  'room:join': (p: { code: string; name: string }, ack: (res: Ack<SessionInfo>) => void) => void;
+  'room:resume': (p: { code: string; token: string }, ack: (res: Ack<{ code: string; playerId: string }>) => void) => void;
+  'room:start': (p: Record<string, never>, ack: (res: Ack) => void) => void;
+  'room:leave': (p: Record<string, never>, ack: (res: Ack) => void) => void;
   'draft:pick': (p: { instanceId: string }) => void;
   'deck:save': (p: DeckSavePayload, ack: (res: { ok: boolean; message?: string }) => void) => void;
-  'room:resume': (p: { roomId: string }) => void;
 }
 
 export interface ServerToClientEvents {
-  'draft:state': (p: { roomId: string; view: SeatView }) => void;
-  'draft:complete': (p: { roomId: string; pool: Card[] }) => void;
-  'practice:error': (p: { message: string }) => void;
+  'room:lobby': (p: LobbyView) => void;
+  'draft:state': (p: DraftStatePayload) => void;
+  'draft:complete': (p: { code: string; pool: Card[] }) => void;
+  'room:error': (p: { message: string }) => void;
 }
