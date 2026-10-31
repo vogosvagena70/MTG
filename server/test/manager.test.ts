@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SetCards } from '@mtg/shared';
 import { InvalidPickError } from '../src/draft/engine';
 import {
+  DISCONNECT_GRACE_NO_TIMER_MS,
   EMPTY_LOBBY_TTL_MS,
   MAX_ROOMS,
   RoomError,
@@ -262,18 +263,32 @@ describe('RoomManager timers', () => {
     expect(clock.pending).toBe(0);
   });
 
-  it('auto-picks a disconnected player immediately in a no-timer room', async () => {
+  it('auto-picks a disconnected player after 30 s in a no-timer multiplayer room', async () => {
     const { manager, room, ann, bob, clock } = await twoPlayerRoom(null);
+    expect(DISCONNECT_GRACE_NO_TIMER_MS).toBe(30_000);
     manager.startRoom(room.id, ann.playerId);
     pickFirst(manager, room, ann);
     manager.disconnect('s-bob');
+    clock.advance(29_999);
     expect(room.round).toBe(0);
-    clock.advance(0);
+    clock.advance(1);
     expect(room.round).toBe(1);
-    // Bob is still away, so his next pick is made right away too and Ann alone drives the draft.
-    expect(room.state!.pickedThisTurn[seatIndexOf(room, bob.playerId)]).toBe(true);
+    // Bob is still away, so his next pick is made after another 30 s and Ann alone drives the draft.
+    expect(room.state!.pickedThisTurn[seatIndexOf(room, bob.playerId)]).toBe(false);
     pickFirst(manager, room, ann);
+    clock.advance(30_000);
     expect(room.round).toBe(2);
+  });
+
+  it('never auto-picks a disconnected player in a practice room', async () => {
+    const { manager, clock } = setup();
+    const { room } = await manager.createRoom({ name: 'Ann', setCode: 'TST', practice: true, socketId: 's-ann' });
+    manager.disconnect('s-ann');
+    const before = room.state;
+    clock.advance(60 * 60 * 1000);
+    expect(room.round).toBe(0);
+    expect(room.state).toBe(before);
+    expect(clock.pending).toBe(0);
   });
 
   it('gives disconnected players a 5 s grace in timer rooms, cancelled by reconnecting', async () => {
@@ -296,9 +311,28 @@ describe('RoomManager timers', () => {
     manager.leave(room.id, bob.playerId);
     for (let i = 0; i < 45; i++) {
       pickFirst(manager, room, ann);
-      clock.advance(0);
+      clock.advance(DISCONNECT_GRACE_NO_TIMER_MS);
     }
     expect(room.phase).toBe('complete');
     expect(clock.pending).toBe(0);
+  });
+
+  it('survives an onChange that throws inside timer callbacks', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { manager, room, ann, clock } = await twoPlayerRoom(60);
+      manager.startRoom(room.id, ann.playerId);
+      manager.disconnect('s-bob'); // arms a grace timer
+      manager.onChange = () => {
+        throw new Error('boom');
+      };
+      expect(() => clock.advance(5_000)).not.toThrow(); // grace callback
+      expect(errors).toHaveBeenCalled();
+      errors.mockClear();
+      expect(() => clock.advance(60_000)).not.toThrow(); // round deadline
+      expect(errors).toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
   });
 });

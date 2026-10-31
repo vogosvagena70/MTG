@@ -13,6 +13,7 @@ export const MAX_ROOMS = 200;
 export const ROOM_TTL_MS = 30 * 60 * 1000;
 export const EMPTY_LOBBY_TTL_MS = 5 * 60 * 1000;
 export const DISCONNECT_GRACE_MS = 5000;
+export const DISCONNECT_GRACE_NO_TIMER_MS = 30_000;
 
 export interface HumanSeat {
   kind: 'human';
@@ -309,7 +310,7 @@ export class RoomManager {
       const ms = room.timerSeconds * 1000;
       const round = room.round;
       room.pickDeadline = this.now() + ms;
-      room.roundTimer = this.scheduler.setTimeout(() => this.onDeadline(room.id, round), ms);
+      room.roundTimer = this.scheduler.setTimeout(() => this.safely('round deadline', () => this.onDeadline(room.id, round)), ms);
     }
     for (const p of room.players) if (p.socketId === null) this.scheduleGrace(room, p);
   }
@@ -327,19 +328,30 @@ export class RoomManager {
 
   private scheduleGrace(room: Room, player: HumanSeat): void {
     if (room.graceTimers.has(player.playerId)) return;
+    if (room.practice) return; // nobody is waiting on a practice draft
     const i = seatIndexOf(room, player.playerId);
     if (i < 0 || room.state!.pickedThisTurn[i]) return;
     const round = room.round;
-    const delay = room.timerSeconds !== null ? DISCONNECT_GRACE_MS : 0;
+    const delay = room.timerSeconds !== null ? DISCONNECT_GRACE_MS : DISCONNECT_GRACE_NO_TIMER_MS;
     const handle = this.scheduler.setTimeout(() => {
       room.graceTimers.delete(player.playerId);
-      const stale =
-        this.rooms.get(room.id) !== room || room.phase !== 'drafting' || room.round !== round || player.socketId !== null;
-      if (stale || room.state!.pickedThisTurn[i]) return;
-      this.autoPick(room, i);
-      this.advance(room);
+      this.safely('disconnect grace', () => {
+        const stale =
+          this.rooms.get(room.id) !== room || room.phase !== 'drafting' || room.round !== round || player.socketId !== null;
+        if (stale || room.state!.pickedThisTurn[i]) return;
+        this.autoPick(room, i);
+        this.advance(room);
+      });
     }, delay);
     room.graceTimers.set(player.playerId, handle);
+  }
+
+  private safely(label: string, fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      console.error(`[rooms] ${label} failed`, err);
+    }
   }
 
   private autoPick(room: Room, seat: number): void {
