@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: mtg-draft
+    runtime: node
+    plan: free
+    # NODE_ENV=production makes npm skip devDependencies; tsx and the client build tools are devDependencies.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"

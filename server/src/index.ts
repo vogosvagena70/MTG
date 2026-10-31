@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { createScryfallClient } from './cards/client';
 import { createCardSource } from './cards/source';
+import { createHttpHandler } from './http';
 import { RoomManager } from './rooms/manager';
 import { createDraftServer } from './server';
 
@@ -16,7 +17,13 @@ const manager = new RoomManager({
     }
   },
 });
-const { httpServer } = createDraftServer({ manager, listSets: () => source.listDraftableSets() });
+const staticDir =
+  process.env.NODE_ENV === 'production' ? fileURLToPath(new URL('../../client/dist', import.meta.url)) : null;
+const { httpServer } = createDraftServer({
+  manager,
+  listSets: () => source.listDraftableSets(),
+  requestListener: createHttpHandler({ staticDir }),
+});
 
 setInterval(() => manager.sweep(), 60_000).unref();
 

@@ -10,6 +10,8 @@
   ],
   "scripts": {
     "dev": "concurrently -n server,client \"npm run dev -w @mtg/server\" \"npm run dev -w @mtg/client\"",
+    "build": "npm run build -w @mtg/client",
+    "start": "npm run start -w @mtg/server",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
