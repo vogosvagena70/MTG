@@ -226,3 +226,79 @@ describe('RoomManager drafting', () => {
     expect(() => manager.saveDeck(room.id, bob.playerId, null)).toThrow('Invalid deck');
   });
 });
+
+describe('RoomManager timers', () => {
+  it('sets a deadline and auto-picks idle humans when it passes', async () => {
+    const { manager, room, ann, bob, clock } = await twoPlayerRoom(60);
+    manager.startRoom(room.id, ann.playerId);
+    expect(room.pickDeadline).toBe(clock.now + 60_000);
+    const annIdx = seatIndexOf(room, ann.playerId);
+    const chosen = room.state!.current[annIdx][3].instanceId;
+    manager.pick(room.id, ann.playerId, chosen);
+    clock.advance(59_999);
+    expect(room.round).toBe(0);
+    clock.advance(1);
+    expect(room.round).toBe(1);
+    expect(room.state!.picks[annIdx][0].instanceId).toBe(chosen);
+    expect(room.state!.picks[seatIndexOf(room, bob.playerId)]).toHaveLength(1);
+    expect(room.pickDeadline).toBe(clock.now + 60_000);
+  });
+
+  it('cancels the old round timer when everyone picks early', async () => {
+    const { manager, room, ann, bob, clock } = await twoPlayerRoom(30);
+    manager.startRoom(room.id, ann.playerId);
+    pickFirst(manager, room, ann);
+    pickFirst(manager, room, bob);
+    expect(room.round).toBe(1);
+    expect(clock.pending).toBe(1); // only the new round's timer
+    clock.advance(29_999);
+    expect(room.round).toBe(1);
+  });
+
+  it('has no deadline and no timers without a timer', async () => {
+    const { manager, room, ann, clock } = await twoPlayerRoom(null);
+    manager.startRoom(room.id, ann.playerId);
+    expect(room.pickDeadline).toBeNull();
+    expect(clock.pending).toBe(0);
+  });
+
+  it('auto-picks a disconnected player immediately in a no-timer room', async () => {
+    const { manager, room, ann, bob, clock } = await twoPlayerRoom(null);
+    manager.startRoom(room.id, ann.playerId);
+    pickFirst(manager, room, ann);
+    manager.disconnect('s-bob');
+    expect(room.round).toBe(0);
+    clock.advance(0);
+    expect(room.round).toBe(1);
+    // Bob is still away, so his next pick is made right away too and Ann alone drives the draft.
+    expect(room.state!.pickedThisTurn[seatIndexOf(room, bob.playerId)]).toBe(true);
+    pickFirst(manager, room, ann);
+    expect(room.round).toBe(2);
+  });
+
+  it('gives disconnected players a 5 s grace in timer rooms, cancelled by reconnecting', async () => {
+    const { manager, room, ann, bob, clock } = await twoPlayerRoom(60);
+    manager.startRoom(room.id, ann.playerId);
+    pickFirst(manager, room, ann);
+    manager.disconnect('s-bob');
+    clock.advance(4_000);
+    manager.resume({ code: room.code, token: bob.token, socketId: 's-bob-2' });
+    clock.advance(2_000);
+    expect(room.round).toBe(0);
+    manager.disconnect('s-bob-2');
+    clock.advance(5_000);
+    expect(room.round).toBe(1);
+  });
+
+  it('lets one remaining human finish a draft while the other is gone', async () => {
+    const { manager, room, ann, bob, clock } = await twoPlayerRoom(null);
+    manager.startRoom(room.id, ann.playerId);
+    manager.leave(room.id, bob.playerId);
+    for (let i = 0; i < 45; i++) {
+      pickFirst(manager, room, ann);
+      clock.advance(0);
+    }
+    expect(room.phase).toBe('complete');
+    expect(clock.pending).toBe(0);
+  });
+});

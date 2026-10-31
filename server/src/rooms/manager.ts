@@ -303,9 +303,48 @@ export class RoomManager {
     this.onChange(room);
   }
 
-  // Timers are added in Task 4.
   private beginRound(room: Room): void {
     room.pickDeadline = null;
+    if (room.timerSeconds !== null) {
+      const ms = room.timerSeconds * 1000;
+      const round = room.round;
+      room.pickDeadline = this.now() + ms;
+      room.roundTimer = this.scheduler.setTimeout(() => this.onDeadline(room.id, round), ms);
+    }
+    for (const p of room.players) if (p.socketId === null) this.scheduleGrace(room, p);
+  }
+
+  private onDeadline(roomId: string, round: number): void {
+    const room = this.rooms.get(roomId);
+    if (!room || room.phase !== 'drafting' || room.round !== round) return;
+    room.roundTimer = null;
+    for (const p of room.players) {
+      const i = seatIndexOf(room, p.playerId);
+      if (i >= 0 && !room.state!.pickedThisTurn[i]) this.autoPick(room, i);
+    }
+    this.advance(room);
+  }
+
+  private scheduleGrace(room: Room, player: HumanSeat): void {
+    if (room.graceTimers.has(player.playerId)) return;
+    const i = seatIndexOf(room, player.playerId);
+    if (i < 0 || room.state!.pickedThisTurn[i]) return;
+    const round = room.round;
+    const delay = room.timerSeconds !== null ? DISCONNECT_GRACE_MS : 0;
+    const handle = this.scheduler.setTimeout(() => {
+      room.graceTimers.delete(player.playerId);
+      const stale =
+        this.rooms.get(room.id) !== room || room.phase !== 'drafting' || room.round !== round || player.socketId !== null;
+      if (stale || room.state!.pickedThisTurn[i]) return;
+      this.autoPick(room, i);
+      this.advance(room);
+    }, delay);
+    room.graceTimers.set(player.playerId, handle);
+  }
+
+  private autoPick(room: Room, seat: number): void {
+    const st = room.state!;
+    room.state = applyPick(st, seat, botPick(st.current[seat], st.picks[seat], room.rng));
   }
 
   /** After any pick: once every human has picked, bots pick and packs pass. */
@@ -362,6 +401,7 @@ export class RoomManager {
     room.graceTimers.clear();
   }
 
-  // Auto-pick scheduling for disconnected seats is added in Task 4.
-  private onSeatDisconnected(_room: Room, _player: HumanSeat): void {}
+  private onSeatDisconnected(room: Room, player: HumanSeat): void {
+    if (room.phase === 'drafting') this.scheduleGrace(room, player);
+  }
 }
