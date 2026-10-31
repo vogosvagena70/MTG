@@ -2,6 +2,9 @@ import { createServer, type RequestListener } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, SetInfo } from '@mtg/shared';
 import { InvalidPickError } from './draft/engine';
+import { gameViewFor } from './game/view';
+import type { Battles, BattlesDeps } from './rooms/battles';
+import { rosterFor } from './rooms/battleViews';
 import type { HumanSeat, Room, RoomManager } from './rooms/manager';
 import { completeFor, draftStateFor, lobbyView } from './rooms/views';
 
@@ -34,6 +37,8 @@ export function createDraftServer(deps: {
   listSets: () => Promise<SetInfo[]>;
   requestListener?: RequestListener;
   now?: () => number;
+  /** Builds the Battles service, wired to this server's socket broadcasts. */
+  createBattles?: (hooks: Pick<BattlesDeps, 'onChange' | 'onDeclined' | 'onGameEnded'>) => Battles;
 }) {
   const { manager } = deps;
   const now = deps.now ?? Date.now;
@@ -46,17 +51,58 @@ export function createDraftServer(deps: {
     else socket.emit('draft:complete', completeFor(room, player.playerId));
   };
 
-  manager.onChange = (room) => {
+  const sendBattleTo = (socket: AppSocket, room: Room, player: HumanSeat) => {
+    if (!battles || room.phase !== 'complete' || room.practice) return;
+    socket.emit('battle:roster', { players: rosterFor(room, battles, player.playerId) });
+    const incoming = battles.incomingFor(player.playerId);
+    if (incoming) socket.emit('battle:challenged', incoming);
+    const game = battles.gameFor(player.playerId);
+    if (game && game.roomId === room.id) {
+      const seat = game.state.players[0].playerId === player.playerId ? 0 : 1;
+      const connected = game.state.players.map(
+        (gp) => room.players.find((rp) => rp.playerId === gp.playerId)?.socketId != null,
+      ) as [boolean, boolean];
+      socket.emit('game:state', gameViewFor(game.state, seat, connected));
+    }
+  };
+
+  const broadcast = (room: Room) => {
     for (const player of room.players) {
       if (!player.socketId) continue;
       try {
         const socket = io.sockets.sockets.get(player.socketId);
-        if (socket) sendRoomTo(socket, room, player);
+        if (!socket) continue;
+        sendRoomTo(socket, room, player);
+        sendBattleTo(socket, room, player);
       } catch (err) {
         console.error('[server] failed to send room update', err);
       }
     }
   };
+  manager.onChange = broadcast;
+
+  const battles = deps.createBattles?.({
+    onChange: broadcast,
+    onDeclined: (room, challengerId, byName, reason) => {
+      try {
+        const sid = room.players.find((p) => p.playerId === challengerId)?.socketId;
+        if (sid) io.sockets.sockets.get(sid)?.emit('battle:declined', { byName, reason });
+      } catch (err) {
+        console.error('[server] failed to send decline', err);
+      }
+    },
+    onGameEnded: (playerIds) => {
+      for (const id of playerIds) {
+        try {
+          for (const s of io.sockets.sockets.values()) {
+            if (s.data.playerId === id) s.emit('game:ended', {});
+          }
+        } catch (err) {
+          console.error('[server] failed to send game end', err);
+        }
+      }
+    },
+  });
 
   io.on('connection', (socket) => {
     const bind = (room: Room, player: HumanSeat) => {
@@ -210,6 +256,43 @@ export function createDraftServer(deps: {
         reply(ack, { ok: false, message: message(err) });
       }
     });
+
+    const battleAction = (ack: unknown, run: (b: Battles, cur: { room: Room; player: HumanSeat }) => void) => {
+      if (typeof ack !== 'function') return;
+      if (!battles) return reply(ack, { ok: false, message: 'Battles are not available' });
+      const cur = current();
+      if (!cur) return reply(ack, { ok: false, message: 'You are not in a room' });
+      try {
+        run(battles, cur);
+        reply(ack, { ok: true });
+      } catch (err) {
+        reply(ack, { ok: false, message: message(err) });
+      }
+    };
+
+    socket.on('battle:challenge', (p, ack) =>
+      battleAction(ack, (b, cur) => {
+        const target = field(p, 'playerId');
+        if (typeof target !== 'string') throw new Error('Invalid challenge');
+        b.challenge(cur.room.id, cur.player.playerId, target);
+      }),
+    );
+
+    socket.on('battle:respond', (p, ack) =>
+      battleAction(ack, (b, cur) => {
+        const accept = field(p, 'accept');
+        if (typeof accept !== 'boolean') throw new Error('Invalid response');
+        b.respond(cur.room.id, cur.player.playerId, accept);
+      }),
+    );
+
+    socket.on('game:action', (p, ack) =>
+      battleAction(ack, (b, cur) => b.act(cur.room.id, cur.player.playerId, p)),
+    );
+
+    socket.on('game:leave', (_p, ack) =>
+      battleAction(ack, (b, cur) => b.leaveGame(cur.room.id, cur.player.playerId)),
+    );
 
     socket.on('disconnect', () => manager.disconnect(socket.id));
   });

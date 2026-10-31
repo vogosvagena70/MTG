@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { io as ioc, type Socket } from 'socket.io-client';
 import type { Card, ClientToServerEvents, DraftStatePayload, LobbyView, ServerToClientEvents, SetCards } from '@mtg/shared';
+import { Battles } from '../src/rooms/battles';
 import { RoomManager } from '../src/rooms/manager';
 import { createDraftServer } from '../src/server';
 import { FakeClock, makeSet } from './helpers';
@@ -12,6 +13,7 @@ let url = '';
 let close: () => Promise<void>;
 let clock: FakeClock;
 let manager: RoomManager;
+let battles: Battles | undefined;
 const clients: ClientSocket[] = [];
 
 function connect(): ClientSocket {
@@ -20,13 +22,17 @@ function connect(): ClientSocket {
   return c;
 }
 
-async function start(getSetCards: (code: string) => Promise<SetCards> = async () => makeSet()) {
+async function start(getSetCards: (code: string) => Promise<SetCards> = async () => makeSet(), withBattles = false) {
   clock = new FakeClock();
+  battles = undefined;
   manager = new RoomManager({ getSetCards, getSetName: async () => 'Test Set', seed: () => 1, now: () => clock.now, scheduler: clock });
   const { httpServer, io } = createDraftServer({
     manager,
     listSets: async () => [{ code: 'tst', name: 'Test Set', releasedAt: '2026-01-01', iconSvgUri: '' }],
     now: () => clock.now,
+    createBattles: withBattles
+      ? (hooks) => (battles = new Battles({ manager, now: () => clock.now, scheduler: clock, seed: () => 7, ...hooks }))
+      : undefined,
   });
   await new Promise<void>((r) => httpServer.listen(0, r));
   url = `http://localhost:${(httpServer.address() as AddressInfo).port}`;
@@ -229,5 +235,130 @@ describe('draft server', () => {
     c.emit('room:leave', null);
     c.emit('sets:list');
     expect(await c.emitWithAck('sets:list')).toMatchObject({ ok: true });
+  });
+});
+
+describe('battles', () => {
+  async function table() {
+    await close();
+    await start(async () => makeSet(), true);
+    const ann = connect();
+    const bob = connect();
+    const created = await createRoom(ann);
+    const joined = await bob.emitWithAck('room:join', { code: created.code, name: 'Bob' });
+    if (!joined.ok) throw new Error(joined.message);
+    const pools = Promise.all([autoDraft(ann), autoDraft(bob)]);
+    await ann.emitWithAck('room:start', {});
+    const [annPool, bobPool] = await pools;
+    const basics = { W: 0, U: 0, B: 0, R: 8, G: 9 };
+    for (const [c, pool] of [[ann, annPool], [bob, bobPool]] as const) {
+      const res = await c.emitWithAck('deck:save', { main: pool.slice(0, 23).map((x) => x.instanceId), basics });
+      expect(res.ok).toBe(true);
+    }
+    return { ann, bob, annId: created.playerId, bobId: joined.playerId, code: created.code, annToken: created.token, bobToken: joined.token };
+  }
+
+  async function startGame(t: Awaited<ReturnType<typeof table>>) {
+    const challenged = waitFor(t.bob, 'battle:challenged');
+    expect(await t.ann.emitWithAck('battle:challenge', { playerId: t.bobId })).toEqual({ ok: true });
+    expect((await challenged).fromName).toBe('Ann');
+    const annState = waitFor(t.ann, 'game:state');
+    const bobState = waitFor(t.bob, 'game:state');
+    expect(await t.bob.emitWithAck('battle:respond', { accept: true })).toEqual({ ok: true });
+    return { a: await annState, b: await bobState };
+  }
+
+  it('challenge, accept, play, hidden info', async () => {
+    const t = await table();
+    const { a, b } = await startGame(t);
+    expect(a.me.hand).toHaveLength(7);
+    const bobNext = waitFor(t.bob, 'game:state', (v) => v.opp.handCount === 8);
+    expect(await t.ann.emitWithAck('game:action', { type: 'draw', count: 1 })).toEqual({ ok: true });
+    const seen = await bobNext;
+    expect(seen.opp.handCount).toBe(8);
+    const json = JSON.stringify(seen);
+    for (const c of a.me.hand) expect(json).not.toContain(c.gid);
+    expect(b.opp.handCount).toBe(7);
+
+    const card = a.me.hand[0];
+    const bobSees = waitFor(t.bob, 'game:state', (v) => v.opp.battlefield.some((c) => c.gid === card.gid));
+    expect(await t.ann.emitWithAck('game:action', { type: 'move', gid: card.gid, to: 'battlefield' })).toEqual({ ok: true });
+    expect((await bobSees).opp.battlefield).toHaveLength(1);
+  });
+
+  it('rejected actions return a message', async () => {
+    const t = await table();
+    await startGame(t);
+    expect(await t.ann.emitWithAck('game:action', { type: 'draw', count: 9 })).toEqual({ ok: false, message: 'Invalid action' });
+  });
+
+  it('concede, leave, rematch', async () => {
+    const t = await table();
+    const { a } = await startGame(t);
+    const conceded = waitFor(t.bob, 'game:state', (v) => v.over !== null);
+    expect(await t.ann.emitWithAck('game:action', { type: 'concede' })).toEqual({ ok: true });
+    const over = await conceded;
+    expect(over.over?.conceded).toBe(a.you);
+
+    const annEnded = waitFor(t.ann, 'game:ended');
+    const bobEnded = waitFor(t.bob, 'game:ended');
+    expect(await t.ann.emitWithAck('game:leave', {})).toEqual({ ok: true });
+    expect(await t.bob.emitWithAck('game:leave', {})).toEqual({ ok: true });
+    await annEnded;
+    await bobEnded;
+    const idle = waitFor(t.ann, 'battle:roster', (r) => r.players.every((p) => !p.inGame));
+    expect(await t.ann.emitWithAck('battle:challenge', { playerId: t.bobId })).toEqual({ ok: true });
+    await idle;
+    const next = waitFor(t.ann, 'game:state');
+    expect(await t.bob.emitWithAck('battle:respond', { accept: true })).toEqual({ ok: true });
+    expect((await next).gameId).not.toBe(a.gameId);
+  });
+
+  it('reload restores the table and a pending challenge', async () => {
+    const t = await table();
+    await startGame(t);
+    const bob2 = connect();
+    const complete = waitFor(bob2, 'draft:complete');
+    const roster = waitFor(bob2, 'battle:roster');
+    const state = waitFor(bob2, 'game:state');
+    const res = await bob2.emitWithAck('room:resume', { code: t.code, token: t.bobToken });
+    expect(res.ok).toBe(true);
+    await complete;
+    expect((await roster).players).toHaveLength(2);
+    expect((await state).you).toBeDefined();
+  });
+
+  it('restores a pending challenge on resume', async () => {
+    const t = await table();
+    expect(await t.ann.emitWithAck('battle:challenge', { playerId: t.bobId })).toEqual({ ok: true });
+    const bob2 = connect();
+    const challenged = waitFor(bob2, 'battle:challenged');
+    await bob2.emitWithAck('room:resume', { code: t.code, token: t.bobToken });
+    expect((await challenged).fromName).toBe('Ann');
+  });
+
+  it('notifies the challenger when declined', async () => {
+    const t = await table();
+    await t.ann.emitWithAck('battle:challenge', { playerId: t.bobId });
+    const declined = waitFor(t.ann, 'battle:declined');
+    await t.bob.emitWithAck('battle:respond', { accept: false });
+    expect(await declined).toEqual({ byName: 'Bob', reason: 'declined' });
+  });
+
+  it('malformed battle payloads do not crash', async () => {
+    const t = await table();
+    const a = t.ann as unknown as { emitWithAck: (...x: unknown[]) => Promise<unknown> };
+    expect(await a.emitWithAck('battle:challenge', null)).toMatchObject({ ok: false });
+    expect(await a.emitWithAck('game:action', null)).toMatchObject({ ok: false });
+    expect(await a.emitWithAck('battle:respond', { accept: 'yes' })).toMatchObject({ ok: false });
+    expect(await a.emitWithAck('sets:list')).toMatchObject({ ok: true });
+  });
+
+  it('reports battles as unavailable when not configured', async () => {
+    await close();
+    await start();
+    const c = connect();
+    await createRoom(c);
+    expect(await c.emitWithAck('battle:challenge', { playerId: 'x' })).toEqual({ ok: false, message: 'Battles are not available' });
   });
 });

@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { createScryfallClient } from './cards/client';
 import { createCardSource } from './cards/source';
 import { createHttpHandler } from './http';
+import { Battles } from './rooms/battles';
 import { RoomManager } from './rooms/manager';
 import { createDraftServer } from './server';
 
@@ -19,13 +20,18 @@ const manager = new RoomManager({
 });
 const staticDir =
   process.env.NODE_ENV === 'production' ? fileURLToPath(new URL('../../client/dist', import.meta.url)) : null;
+let battles: Battles | undefined;
 const { httpServer } = createDraftServer({
   manager,
+  createBattles: (hooks) => (battles = new Battles({ manager, ...hooks })),
   listSets: () => source.listDraftableSets(),
   requestListener: createHttpHandler({ staticDir }),
 });
 
-setInterval(() => manager.sweep(), 60_000).unref();
+setInterval(() => {
+  manager.sweep();
+  battles?.sweep();
+}, 60_000).unref();
 
 const port = Number(process.env.PORT ?? 3001);
 httpServer.listen(port, () => console.log(`Draft server listening on http://localhost:${port}`));
