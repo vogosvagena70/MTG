@@ -30,6 +30,7 @@ export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const onState = ({ roomId, view }: { roomId: string; view: SeatView }) => {
@@ -40,13 +41,21 @@ export function App() {
     };
     const onComplete = ({ roomId, pool }: { roomId: string; pool: Card[] }) => {
       storeRoom(roomId);
+      setNotice(null);
       setScreen((s) => (s.name === 'deck' ? s : { name: 'deck', pool }));
     };
     const onError = ({ message }: { message: string }) => {
       storeRoom(null);
       setStarting(false);
-      setError(message);
-      setScreen({ name: 'home' });
+      setScreen((s) => {
+        if (s.name === 'deck') {
+          // the pool lives client-side: keep the deckbuilder usable
+          setNotice(`${message}. Your draft expired on the server; you can still export or download this deck, but Save is unavailable.`);
+          return s;
+        }
+        setError(message);
+        return { name: 'home' };
+      });
     };
     const onConnect = () => {
       const roomId = loadRoom();
@@ -74,10 +83,11 @@ export function App() {
 
   const newDraft = () => {
     storeRoom(null);
+    setNotice(null);
     setScreen({ name: 'home' });
   };
 
   if (screen.name === 'draft') return <Draft view={screen.view} />;
-  if (screen.name === 'deck') return <Deckbuilder pool={screen.pool} onNewDraft={newDraft} />;
+  if (screen.name === 'deck') return <Deckbuilder pool={screen.pool} onNewDraft={newDraft} notice={notice} />;
   return <Home onStart={start} starting={starting} error={error} />;
 }

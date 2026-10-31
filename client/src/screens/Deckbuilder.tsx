@@ -10,9 +10,10 @@ const byCurve = (a: Card, b: Card) => a.manaValue - b.manaValue || a.name.locale
 interface Props {
   pool: Card[];
   onNewDraft: () => void;
+  notice?: string | null;
 }
 
-export function Deckbuilder({ pool, onNewDraft }: Props) {
+export function Deckbuilder({ pool, onNewDraft, notice }: Props) {
   const [mainIds, setMainIds] = useState<Set<string>>(() => new Set());
   const [basics, setBasics] = useState<Record<Color, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0 });
   const [hover, setHover] = useState<Card | null>(null);
@@ -55,13 +56,13 @@ export function Deckbuilder({ pool, onNewDraft }: Props) {
     a.href = url;
     a.download = 'practice-deck.txt';
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const save = async () => {
     try {
       const res = await socket.timeout(5_000).emitWithAck('deck:save', { main: [...mainIds], basics });
-      setStatus(res.ok ? 'Deck saved' : 'Save failed');
+      setStatus(res.ok ? 'Deck saved' : `Save failed: ${res.message ?? 'unknown error'}`);
     } catch {
       setStatus('Save failed: server did not respond');
     }
@@ -83,7 +84,7 @@ export function Deckbuilder({ pool, onNewDraft }: Props) {
           <button className="btn" onClick={onNewDraft}>New draft</button>
         </div>
       </header>
-      {status && <p className="muted">{status}</p>}
+      {(status ?? notice) && <p className="muted">{status ?? notice}</p>}
 
       <div className="deck-tools">
         <div className="basics">

@@ -23,6 +23,10 @@ describe('colorGroup / groupByColor', () => {
 });
 
 describe('manaCurve', () => {
+  it('counts a spell whose back face is a land', () => {
+    expect(manaCurve([card({ manaValue: 1, typeLine: 'Instant // Land' })])[1]).toBe(1);
+  });
+
   it('buckets nonland cards 0..6+', () => {
     const curve = manaCurve([
       card({ manaValue: 0 }), card({ manaValue: 2 }), card({ manaValue: 2 }), card({ manaValue: 9 }),

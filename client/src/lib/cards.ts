@@ -24,7 +24,7 @@ export function groupByColor(cards: Card[]): { group: ColorGroup; cards: Card[] 
   );
 }
 
-export const isLand = (card: Card) => /\bLand\b/.test(card.typeLine);
+export const isLand = (card: Card) => /\bLand\b/.test(card.typeLine.split(' // ')[0]);
 
 export function manaCurve(cards: Card[]): number[] {
   const curve = [0, 0, 0, 0, 0, 0, 0];
