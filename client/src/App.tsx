@@ -21,6 +21,7 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const screenRef = useRef(screen);
   screenRef.current = screen;
+  const takenOver = useRef(false); // another tab owns the saved session; stop auto-resuming
 
   const remember = (s: SessionInfo | null) => {
     saveSession(s);
@@ -53,12 +54,22 @@ export function App() {
         setScreen({ name: 'home' });
       }
     };
+    const onTakeover = () => {
+      takenOver.current = true;
+      setSession(null); // keep localStorage: the new tab owns that session
+      setBusy(false);
+      setNotice(null);
+      setError('This draft was opened in another tab.');
+      setScreen({ name: 'home' });
+    };
     const onConnect = async () => {
+      if (takenOver.current) return;
       const s = loadSession();
       if (!s) return;
       try {
         const res = await socket.timeout(10_000).emitWithAck('room:resume', { code: s.code, token: s.token });
         if (!res.ok) onError({ message: res.message });
+        else remember({ code: res.code, playerId: res.playerId, token: s.token });
       } catch {
         // no answer: Socket.IO reconnects and 'connect' fires again
       }
@@ -68,6 +79,7 @@ export function App() {
     socket.on('draft:state', onState);
     socket.on('draft:complete', onComplete);
     socket.on('room:error', onError);
+    socket.on('room:takeover', onTakeover);
     socket.on('connect', onConnect);
     if (socket.connected) onConnect();
     return () => {
@@ -75,11 +87,13 @@ export function App() {
       socket.off('draft:state', onState);
       socket.off('draft:complete', onComplete);
       socket.off('room:error', onError);
+      socket.off('room:takeover', onTakeover);
       socket.off('connect', onConnect);
     };
   }, []);
 
   const enter = async (request: Promise<Ack<SessionInfo>>) => {
+    takenOver.current = false;
     setBusy(true);
     setError(null);
     try {
