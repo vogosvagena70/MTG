@@ -25,10 +25,11 @@ export function Draft({ state }: { state: DraftStatePayload }) {
   const left = secondsLeft(pickDeadline, useNow(pickDeadline !== null));
   const waitingFor = table.filter((s) => !s.isBot && !s.picked).map((s) => s.name);
 
+  const packKey = `${view.packNumber}-${view.pickNumber}-${view.currentPack?.length ?? 'none'}`;
   useEffect(() => {
     setPending(false);
     setHover(null);
-  }, [view]);
+  }, [packKey]);
 
   const pick = (card: Card) => {
     if (pending) return;
