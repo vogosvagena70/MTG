@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Card, SeatView } from '@mtg/shared';
 import { socket } from './socket';
 import { Home } from './screens/Home';
+import { Draft } from './screens/Draft';
 
 type Screen = { name: 'home' } | { name: 'draft'; view: SeatView } | { name: 'deck'; pool: Card[] };
 
@@ -75,7 +76,7 @@ export function App() {
     setScreen({ name: 'home' });
   };
 
-  if (screen.name === 'draft') return <p className="muted">Draft screen (Task 9) — pick {screen.view.pickNumber}</p>;
+  if (screen.name === 'draft') return <Draft view={screen.view} />;
   if (screen.name === 'deck') return <button className="btn" onClick={newDraft}>Deckbuilder (Task 10) — new draft</button>;
   return <Home onStart={start} starting={starting} error={error} />;
 }
