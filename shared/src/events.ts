@@ -6,7 +6,7 @@ export interface ClientToServerEvents {
   'sets:list': (ack: (res: SetsListResult) => void) => void;
   'practice:start': (p: { setCode: string }) => void;
   'draft:pick': (p: { instanceId: string }) => void;
-  'deck:save': (p: DeckSavePayload, ack: (res: { ok: boolean }) => void) => void;
+  'deck:save': (p: DeckSavePayload, ack: (res: { ok: boolean; message?: string }) => void) => void;
   'room:resume': (p: { roomId: string }) => void;
 }
 

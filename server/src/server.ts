@@ -13,9 +13,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : 'Unexpec
 export function createDraftServer(deps: { manager: RoomManager; listSets: () => Promise<SetInfo[]> }) {
   const { manager } = deps;
   const httpServer = createServer();
-  const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
-    cors: { origin: true },
-  });
+  const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer);
 
   io.on('connection', (socket) => {
     const emitRoom = (room: Room) => {
@@ -56,7 +54,7 @@ export function createDraftServer(deps: { manager: RoomManager; listSets: () => 
 
     socket.on('draft:pick', (p) => {
       const roomId = socket.data.roomId;
-      if (!roomId) return fail(new Error('No active draft'));
+      if (!roomId) return; // not in a room (e.g. reconnecting): ignore silently
       try {
         const instanceId = (p as { instanceId?: unknown } | null | undefined)?.instanceId;
         if (typeof instanceId !== 'string') throw new Error('Invalid pick');
@@ -86,14 +84,14 @@ export function createDraftServer(deps: { manager: RoomManager; listSets: () => 
 
     socket.on('deck:save', (deck, ack) => {
       if (typeof ack !== 'function') return;
-      let ok = true;
+      let res: { ok: boolean; message?: string } = { ok: true };
       try {
         manager.saveDeck(socket.data.roomId ?? '', deck);
-      } catch {
-        ok = false;
+      } catch (err) {
+        res = { ok: false, message: message(err) };
       }
       try {
-        ack({ ok });
+        ack(res);
       } catch {
         // ignore
       }

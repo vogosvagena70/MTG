@@ -56,6 +56,40 @@ describe('draft server', () => {
     expect(res).toEqual({ ok: true });
   });
 
+  it('returns a message when saving before the draft is complete', async () => {
+    const client = connect();
+    await new Promise((r) => {
+      client.once('draft:state', r);
+      client.emit('practice:start', { setCode: 'tst' });
+    });
+    const res = await client.emitWithAck('deck:save', { main: [], basics: { W: 0, U: 0, B: 0, R: 0, G: 0 } });
+    expect(res).toEqual({ ok: false, message: 'Draft is not complete' });
+  });
+
+  it('ignores a pick when the socket has no room', async () => {
+    const client = connect();
+    const errors: unknown[] = [];
+    client.on('practice:error', (e) => errors.push(e));
+    client.emit('draft:pick', { instanceId: 'x' });
+    await client.emitWithAck('sets:list'); // round trip: earlier events were processed
+    expect(errors).toEqual([]);
+  });
+
+  it('resumes a completed draft with the full pool', async () => {
+    const a = connect();
+    const roomId = await new Promise<string>((resolve) => {
+      a.on('draft:state', ({ view }) => a.emit('draft:pick', { instanceId: view.currentPack![0].instanceId }));
+      a.on('draft:complete', ({ roomId }) => resolve(roomId));
+      a.emit('practice:start', { setCode: 'tst' });
+    });
+    const b = connect();
+    const done = await new Promise<{ pool: Card[] }>((r) => {
+      b.once('draft:complete', r);
+      b.emit('room:resume', { roomId });
+    });
+    expect(done.pool).toHaveLength(45);
+  });
+
   it('re-emits unchanged state on an invalid pick', async () => {
     const client = connect();
     const first = await new Promise<{ roomId: string }>((r) => {
