@@ -132,6 +132,14 @@ describe('applyAction', () => {
     expect(last(g)).toBe('Player0 put a card from their hand on top of their library');
   });
 
+  it('a move to the zone the card is already in is a silent no-op', () => {
+    const g = newGame();
+    const gid = g.players[0].zones.hand[0];
+    const n = applyAction(g, 0, { type: 'move', gid, to: 'hand' }, 9);
+    expect(n.players[0].zones).toEqual(g.players[0].zones);
+    expect(n.log).toEqual(g.log);
+  });
+
   it("cannot touch the opponent's cards or library cards", () => {
     const g = newGame();
     const theirs = g.players[1].zones.hand[0];

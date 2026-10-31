@@ -85,6 +85,7 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
       const card = cards[action.gid];
       if (!from || !card || card.owner !== seat) throw new GameError('Card is not available');
       if (!ZONES.includes(action.to)) throw new GameError('Invalid action');
+      if (from === action.to && from !== 'battlefield') break; // no-op: nothing changes, nothing is logged
       if (from === 'battlefield' && action.to === 'battlefield') {
         setCard(action.gid, { x: clamp(action.x ?? 50), y: clamp(action.y ?? 50) });
         break;
