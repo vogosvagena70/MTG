@@ -1,0 +1,22 @@
+{
+  "name": "@mtg/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@mtg/shared": "*",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "socket.io-client": "^4.8.1",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8"
+  }
+}
