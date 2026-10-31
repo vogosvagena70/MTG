@@ -29,8 +29,12 @@ const { httpServer } = createDraftServer({
 });
 
 setInterval(() => {
-  manager.sweep();
-  battles?.sweep();
+  try {
+    manager.sweep();
+    battles?.sweep();
+  } catch (err) {
+    console.error('[server] sweep failed', err);
+  }
 }, 60_000).unref();
 
 const port = Number(process.env.PORT ?? 3001);

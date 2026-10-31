@@ -250,6 +250,7 @@ export class RoomManager {
       counts[c] = n;
     }
     room.decks.set(playerId, { main: [...(main as string[])], basics: counts });
+    this.onChange(room);
   }
 
   get(roomId: string): Room {

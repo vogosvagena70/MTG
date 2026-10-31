@@ -1,11 +1,13 @@
 import { createServer, type RequestListener } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, SetInfo } from '@mtg/shared';
+import { ScryfallError } from './cards/client';
 import { InvalidPickError } from './draft/engine';
+import { GameError } from './game/state';
 import { gameViewFor } from './game/view';
-import type { Battles, BattlesDeps } from './rooms/battles';
+import type { Battles, BattlesDeps, LiveGame } from './rooms/battles';
 import { rosterFor } from './rooms/battleViews';
-import type { HumanSeat, Room, RoomManager } from './rooms/manager';
+import { RoomError, type HumanSeat, type Room, type RoomManager } from './rooms/manager';
 import { completeFor, draftStateFor, lobbyView } from './rooms/views';
 
 interface SocketData {
@@ -19,7 +21,13 @@ type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<strin
 export const CREATE_LIMIT = 2;
 export const CREATE_WINDOW_MS = 60_000;
 
-const message = (err: unknown) => (err instanceof Error ? err.message : 'Unexpected error');
+const message = (err: unknown) => {
+  if (err instanceof RoomError || err instanceof GameError || err instanceof InvalidPickError || err instanceof ScryfallError) {
+    return err.message;
+  }
+  console.error('[server] unexpected error', err);
+  return 'Unexpected error';
+};
 const field = (p: unknown, key: string): unknown =>
   p && typeof p === 'object' ? (p as Record<string, unknown>)[key] : undefined;
 
@@ -38,7 +46,7 @@ export function createDraftServer(deps: {
   requestListener?: RequestListener;
   now?: () => number;
   /** Builds the Battles service, wired to this server's socket broadcasts. */
-  createBattles?: (hooks: Pick<BattlesDeps, 'onChange' | 'onDeclined' | 'onGameEnded'>) => Battles;
+  createBattles?: (hooks: Pick<BattlesDeps, 'onChange' | 'onGame' | 'onDeclined' | 'onGameEnded'>) => Battles;
 }) {
   const { manager } = deps;
   const now = deps.now ?? Date.now;
@@ -51,38 +59,57 @@ export function createDraftServer(deps: {
     else socket.emit('draft:complete', completeFor(room, player.playerId));
   };
 
+  const sendGameTo = (socket: AppSocket, room: Room, player: HumanSeat, game: LiveGame) => {
+    const seat = game.state.players[0].playerId === player.playerId ? 0 : 1;
+    const connected = game.state.players.map(
+      (gp) => room.players.find((rp) => rp.playerId === gp.playerId)?.socketId != null,
+    ) as [boolean, boolean];
+    socket.emit('game:state', gameViewFor(game.state, seat, connected));
+  };
+
   const sendBattleTo = (socket: AppSocket, room: Room, player: HumanSeat) => {
     if (!battles || room.phase !== 'complete' || room.practice) return;
     socket.emit('battle:roster', { players: rosterFor(room, battles, player.playerId) });
     const incoming = battles.incomingFor(player.playerId);
     if (incoming) socket.emit('battle:challenged', incoming);
     const game = battles.gameFor(player.playerId);
-    if (game && game.roomId === room.id) {
-      const seat = game.state.players[0].playerId === player.playerId ? 0 : 1;
-      const connected = game.state.players.map(
-        (gp) => room.players.find((rp) => rp.playerId === gp.playerId)?.socketId != null,
-      ) as [boolean, boolean];
-      socket.emit('game:state', gameViewFor(game.state, seat, connected));
-    }
+    if (game && game.roomId === room.id) sendGameTo(socket, room, player, game);
   };
 
-  const broadcast = (room: Room) => {
+  const eachConnected = (room: Room, send: (socket: AppSocket, player: HumanSeat) => void) => {
     for (const player of room.players) {
       if (!player.socketId) continue;
       try {
         const socket = io.sockets.sockets.get(player.socketId);
-        if (!socket) continue;
-        sendRoomTo(socket, room, player);
-        sendBattleTo(socket, room, player);
+        if (socket) send(socket, player);
       } catch (err) {
         console.error('[server] failed to send room update', err);
       }
     }
   };
-  manager.onChange = broadcast;
+
+  /** Room view plus battle extras, for room-level changes. */
+  const broadcastRoom = (room: Room) =>
+    eachConnected(room, (socket, player) => {
+      sendRoomTo(socket, room, player);
+      sendBattleTo(socket, room, player);
+    });
+  /** Battle extras only (roster, challenge, game view), for battle-level changes. */
+  const broadcastBattle = (room: Room) => eachConnected(room, (socket, player) => sendBattleTo(socket, room, player));
+  /** A game action: only the two players in the game get their view. */
+  const broadcastGame = (game: LiveGame) => {
+    const room = manager.peek(game.roomId);
+    if (!room) return;
+    const ids = new Set(game.state.players.map((p) => p.playerId));
+    eachConnected(room, (socket, player) => {
+      if (ids.has(player.playerId)) sendGameTo(socket, room, player, game);
+    });
+  };
+  manager.onChange = broadcastRoom;
 
   const battles = deps.createBattles?.({
-    onChange: broadcast,
+    onChange: broadcastBattle,
+    onGame: broadcastGame,
     onDeclined: (room, challengerId, byName, reason) => {
       try {
         const sid = room.players.find((p) => p.playerId === challengerId)?.socketId;
@@ -273,7 +300,7 @@ export function createDraftServer(deps: {
     socket.on('battle:challenge', (p, ack) =>
       battleAction(ack, (b, cur) => {
         const target = field(p, 'playerId');
-        if (typeof target !== 'string') throw new Error('Invalid challenge');
+        if (typeof target !== 'string') throw new RoomError('Invalid challenge');
         b.challenge(cur.room.id, cur.player.playerId, target);
       }),
     );
@@ -281,7 +308,7 @@ export function createDraftServer(deps: {
     socket.on('battle:respond', (p, ack) =>
       battleAction(ack, (b, cur) => {
         const accept = field(p, 'accept');
-        if (typeof accept !== 'boolean') throw new Error('Invalid response');
+        if (typeof accept !== 'boolean') throw new RoomError('Invalid response');
         b.respond(cur.room.id, cur.player.playerId, accept);
       }),
     );

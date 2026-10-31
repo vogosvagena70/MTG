@@ -1,7 +1,8 @@
 import type { AddressInfo } from 'node:net';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { io as ioc, type Socket } from 'socket.io-client';
 import type { Card, ClientToServerEvents, DraftStatePayload, LobbyView, ServerToClientEvents, SetCards } from '@mtg/shared';
+import { ScryfallError } from '../src/cards/client';
 import { Battles } from '../src/rooms/battles';
 import { RoomManager } from '../src/rooms/manager';
 import { createDraftServer } from '../src/server';
@@ -204,7 +205,7 @@ describe('draft server', () => {
 
     await close();
     await start(async () => {
-      throw new Error('No booster cards found for set "zzz"');
+      throw new ScryfallError('No booster cards found for set "zzz"');
     });
     const c2 = connect();
     const res = await c2.emitWithAck('room:create', { name: 'A', setCode: 'zzz', timerSeconds: null });
@@ -352,6 +353,70 @@ describe('battles', () => {
     expect(await a.emitWithAck('game:action', null)).toMatchObject({ ok: false });
     expect(await a.emitWithAck('battle:respond', { accept: 'yes' })).toMatchObject({ ok: false });
     expect(await a.emitWithAck('sets:list')).toMatchObject({ ok: true });
+  });
+
+  it('refreshes every roster when a deck is saved', async () => {
+    await close();
+    await start(async () => makeSet(), true);
+    const ann = connect();
+    const bob = connect();
+    const created = await createRoom(ann);
+    await bob.emitWithAck('room:join', { code: created.code, name: 'Bob' });
+    const pools = Promise.all([autoDraft(ann), autoDraft(bob)]);
+    await ann.emitWithAck('room:start', {});
+    const [annPool, bobPool] = await pools;
+    const bothSaved = (r: { players: { deckSaved: boolean }[] }) => r.players.length === 2 && r.players.every((p) => p.deckSaved);
+    const annRoster = waitFor(ann, 'battle:roster', bothSaved);
+    const bobRoster = waitFor(bob, 'battle:roster', bothSaved);
+    const basics = { W: 0, U: 0, B: 0, R: 8, G: 9 };
+    await ann.emitWithAck('deck:save', { main: annPool.slice(0, 23).map((x) => x.instanceId), basics });
+    await bob.emitWithAck('deck:save', { main: bobPool.slice(0, 23).map((x) => x.instanceId), basics });
+    await annRoster;
+    await bobRoster;
+  });
+
+  it('game actions reach only the two players in the game', async () => {
+    await close();
+    await start(async () => makeSet(), true);
+    const ann = connect();
+    const bob = connect();
+    const carl = connect();
+    const created = await createRoom(ann);
+    const joinedBob = await bob.emitWithAck('room:join', { code: created.code, name: 'Bob' });
+    await carl.emitWithAck('room:join', { code: created.code, name: 'Carl' });
+    if (!joinedBob.ok) throw new Error(joinedBob.message);
+    const pools = Promise.all([autoDraft(ann), autoDraft(bob), autoDraft(carl)]);
+    await ann.emitWithAck('room:start', {});
+    const [annPool, bobPool] = await pools;
+    const basics = { W: 0, U: 0, B: 0, R: 8, G: 9 };
+    await ann.emitWithAck('deck:save', { main: annPool.slice(0, 23).map((x) => x.instanceId), basics });
+    await bob.emitWithAck('deck:save', { main: bobPool.slice(0, 23).map((x) => x.instanceId), basics });
+    const bobState = waitFor(bob, 'game:state');
+    await ann.emitWithAck('battle:challenge', { playerId: joinedBob.playerId });
+    await bob.emitWithAck('battle:respond', { accept: true });
+    await bobState;
+    await new Promise((r) => setTimeout(r, 100));
+    const seen: string[] = [];
+    carl.on('draft:complete', () => seen.push('draft:complete'));
+    carl.on('battle:roster', () => seen.push('battle:roster'));
+    const bobNext = waitFor(bob, 'game:state', (v) => v.opp.handCount === 8);
+    expect(await ann.emitWithAck('game:action', { type: 'draw', count: 1 })).toEqual({ ok: true });
+    await bobNext;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(seen).toEqual([]);
+  });
+
+  it('does not leak internal error text', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await close();
+    await start(async () => {
+      throw new TypeError('secret internal detail');
+    });
+    const c = connect();
+    const res = await c.emitWithAck('room:create', { name: 'A', setCode: 'zzz', timerSeconds: null });
+    expect(res).toEqual({ ok: false, message: 'Unexpected error' });
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('reports battles as unavailable when not configured', async () => {

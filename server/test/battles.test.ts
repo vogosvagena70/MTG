@@ -35,10 +35,11 @@ async function setup(opts: { players?: number; practice?: boolean; draft?: boole
     if (opts.decks !== false) for (const p of players) manager.saveDeck(room.id, p.playerId, deckFor(room, p));
   }
   const onChange = vi.fn();
+  const onGame = vi.fn();
   const onDeclined = vi.fn();
   const onGameEnded = vi.fn();
-  const battles = new Battles({ manager, now: () => clock.now, scheduler: clock, seed: () => 42, onChange, onDeclined, onGameEnded });
-  return { clock, manager, battles, room, ann, bob, cat: players[2], onChange, onDeclined, onGameEnded };
+  const battles = new Battles({ manager, now: () => clock.now, scheduler: clock, seed: () => 42, onChange, onGame, onDeclined, onGameEnded });
+  return { clock, manager, battles, room, ann, bob, cat: players[2], onChange, onGame, onDeclined, onGameEnded };
 }
 
 describe('Battles challenge validation', () => {
@@ -63,6 +64,19 @@ describe('Battles challenge validation', () => {
     expect(() => battles.challenge(room.id, cat.playerId, bob.playerId)).toThrow('Bob is busy');
   });
 
+  it('rejects short decks at challenge time, in both directions', async () => {
+    const t = await setup();
+    const { battles, room, ann, bob, onChange } = t;
+    onChange.mockClear();
+    room.decks.set(ann.playerId, deckFor(room, ann, 22, 17));
+    expect(() => battles.challenge(room.id, ann.playerId, bob.playerId)).toThrow('Your deck has fewer than 40 cards');
+    room.decks.set(ann.playerId, deckFor(room, ann));
+    room.decks.set(bob.playerId, deckFor(room, bob, 22, 17));
+    expect(() => battles.challenge(room.id, ann.playerId, bob.playerId)).toThrow("Bob's deck has fewer than 40 cards");
+    expect(battles.incomingFor(bob.playerId)).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('rejects practice rooms and rooms that are not complete', async () => {
     const lobby = await setup({ draft: false });
     expect(() => lobby.battles.challenge(lobby.room.id, lobby.ann.playerId, lobby.bob.playerId)).toThrow(
@@ -76,7 +90,7 @@ describe('Battles challenge validation', () => {
     const clock = new FakeClock();
     const manager = new RoomManager({ getSetCards: async () => SET, seed: () => 1, now: () => clock.now, scheduler: clock });
     const { room, player } = await manager.createRoom({ name: 'Solo', setCode: 'tst', practice: true, socketId: 's' });
-    const battles = new Battles({ manager, now: () => clock.now, scheduler: clock, onChange: vi.fn(), onDeclined: vi.fn(), onGameEnded: vi.fn() });
+    const battles = new Battles({ manager, now: () => clock.now, scheduler: clock, onChange: vi.fn(), onGame: vi.fn(), onDeclined: vi.fn(), onGameEnded: vi.fn() });
     expect(() => battles.challenge(room.id, player.playerId, 'x')).toThrow('Battles are only available after a multiplayer draft');
   });
 });
@@ -178,11 +192,12 @@ describe('Battles live game', () => {
 
   it('act applies to the caller seat and refreshes room activity', async () => {
     const t = await started();
-    const { battles, room, ann, clock, manager, onChange } = t;
+    const { battles, room, ann, clock, manager, onChange, onGame } = t;
     clock.advance(29 * 60_000);
     battles.act(room.id, ann.playerId, { type: 'draw', count: 1 });
     expect(battles.gameFor(ann.playerId)!.state.players[seatOf(t, ann.playerId)].zones.hand).toHaveLength(8);
-    expect(onChange).toHaveBeenCalledWith(room);
+    expect(onGame).toHaveBeenCalledWith(battles.gameFor(ann.playerId));
+    expect(onChange).not.toHaveBeenCalled();
     clock.advance(2 * 60_000);
     expect(manager.sweep()).toBe(0);
     expect(() => battles.act(room.id, ann.playerId, { type: 'bogus' })).toThrow('Invalid action');

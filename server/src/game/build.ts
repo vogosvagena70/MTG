@@ -10,7 +10,7 @@ export interface BuildPlayer {
 }
 
 const BASIC_NAMES: Record<Color, string> = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
-const DECK_MIN = 40;
+export const DECK_MIN = 40;
 const HAND_SIZE = 7;
 
 function basicFor(color: Color, basics: Card[]): Card {
@@ -21,6 +21,13 @@ function basicFor(color: Color, basics: Card[]): Card {
     instanceId: '', scryfallId: `basic-${name.toLowerCase()}`, name, manaCost: '', manaValue: 0, colors: [],
     typeLine: `Basic Land — ${name}`, oracleText: '', rarity: 'common', imageUrl: '',
   };
+}
+
+/** Total cards in a saved deck (main plus basic lands). */
+export function deckSize(deck: DeckSavePayload): number {
+  let n = deck.main.length;
+  for (const color of COLORS) n += Math.max(0, Math.floor(deck.basics?.[color] ?? 0));
+  return n;
 }
 
 function deckCards(p: BuildPlayer, basics: Card[]): Card[] {

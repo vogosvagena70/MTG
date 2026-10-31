@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingChallenge } from '@mtg/shared';
 import { applyAction, parseAction } from '../game/actions';
-import { buildGame } from '../game/build';
+import { DECK_MIN, buildGame, deckSize } from '../game/build';
 import type { GameState } from '../game/state';
 import { RoomError, seatIndexOf, type Room, type RoomManager } from './manager';
 import { realScheduler, type Scheduler } from './scheduler';
@@ -29,6 +29,8 @@ export interface BattlesDeps {
   scheduler?: Scheduler;
   seed?: () => number;
   onChange: (room: Room) => void;
+  /** A live game changed through a player action; only its two players need the new view. */
+  onGame: (game: LiveGame) => void;
   onDeclined: (room: Room, challengerId: string, byName: string, reason: 'declined' | 'expired') => void;
   onGameEnded: (playerIds: string[]) => void;
 }
@@ -59,8 +61,12 @@ export class Battles {
     if (!from) throw new RoomError('You are not seated in this draft');
     const to = room.players.find((p) => p.playerId === toPlayerId);
     if (!to) throw new RoomError('Player not found');
-    if (!room.decks.has(fromPlayerId)) throw new RoomError('Save your deck first');
-    if (!room.decks.has(toPlayerId)) throw new RoomError(`${to.name} hasn't saved a deck yet`);
+    const fromDeck = room.decks.get(fromPlayerId);
+    const toDeck = room.decks.get(toPlayerId);
+    if (!fromDeck) throw new RoomError('Save your deck first');
+    if (!toDeck) throw new RoomError(`${to.name} hasn't saved a deck yet`);
+    if (deckSize(fromDeck) < DECK_MIN) throw new RoomError('Your deck has fewer than 40 cards');
+    if (deckSize(toDeck) < DECK_MIN) throw new RoomError(`${to.name}'s deck has fewer than 40 cards`);
     if (this.isBusy(toPlayerId)) throw new RoomError(`${to.name} is busy`);
     if (this.isBusy(fromPlayerId)) throw new RoomError('You are already in a game or challenge');
 
@@ -108,13 +114,13 @@ export class Battles {
   }
 
   act(roomId: string, playerId: string, raw: unknown): void {
-    const room = this.deps.manager.get(roomId);
+    this.deps.manager.get(roomId); // refreshes room activity
     const game = this.gameByPlayer.get(playerId);
     if (!game || game.roomId !== roomId) throw new RoomError('You are not in a game');
     const seat = this.seatOf(game, playerId);
     game.state = applyAction(game.state, seat, parseAction(raw), this.now());
     this.afterChange(game);
-    this.deps.onChange(room);
+    this.deps.onGame(game);
   }
 
   leaveGame(roomId: string, playerId: string): void {
