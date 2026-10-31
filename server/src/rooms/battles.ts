@@ -74,6 +74,7 @@ export class Battles {
     ch.timer = this.scheduler.setTimeout(() => this.safely('challenge expiry', () => this.expire(ch)), CHALLENGE_TTL_MS);
     this.challengeByTo.set(toPlayerId, ch);
     this.challengeByFrom.set(fromPlayerId, ch);
+    this.deps.onChange(room);
   }
 
   respond(roomId: string, playerId: string, accept: boolean): void {
@@ -86,13 +87,17 @@ export class Battles {
     if (!me || !from) throw new RoomError('Player not found');
     if (!accept) {
       this.deps.onDeclined(room, ch.fromPlayerId, me.name, 'declined');
+      this.deps.onChange(room);
       return;
     }
     let state: GameState;
     try {
       state = this.build(room, from.playerId, me.playerId);
     } catch (err) {
-      this.deps.onDeclined(room, ch.fromPlayerId, me.name, 'declined');
+      this.safely('decline notification', () => {
+        this.deps.onDeclined(room, ch.fromPlayerId, me.name, 'declined');
+        this.deps.onChange(room);
+      });
       throw err;
     }
     const game: LiveGame = { state, roomId, left: [false, false] };
@@ -193,7 +198,12 @@ export class Battles {
     this.endTimers.delete(game.state.id);
     const stillIn = game.state.players.filter((_, i) => !game.left[i]).map((p) => p.playerId);
     this.deleteGame(game);
-    if (stillIn.length) this.deps.onGameEnded(stillIn);
+    try {
+      if (stillIn.length) this.deps.onGameEnded(stillIn);
+    } finally {
+      const room = this.deps.manager.peek(game.roomId);
+      if (room) this.deps.onChange(room);
+    }
   }
 
   private deleteGame(game: LiveGame): void {
@@ -211,7 +221,12 @@ export class Battles {
     this.clearChallenge(ch);
     const room = this.deps.manager.peek(ch.roomId);
     const to = room?.players.find((p) => p.playerId === ch.toPlayerId);
-    if (room && to) this.deps.onDeclined(room, ch.fromPlayerId, to.name, 'expired');
+    if (!room) return;
+    try {
+      if (to) this.deps.onDeclined(room, ch.fromPlayerId, to.name, 'expired');
+    } finally {
+      this.deps.onChange(room);
+    }
   }
 
   private clearChallenge(ch: Challenge): void {

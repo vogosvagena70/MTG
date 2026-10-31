@@ -84,7 +84,9 @@ describe('Battles challenge validation', () => {
 describe('Battles challenge flow', () => {
   it('accept starts a game for both', async () => {
     const { battles, room, ann, bob, onChange } = await setup();
+    onChange.mockClear();
     battles.challenge(room.id, ann.playerId, bob.playerId);
+    expect(onChange).toHaveBeenCalledWith(room);
     expect(battles.incomingFor(bob.playerId)).toMatchObject({ fromPlayerId: ann.playerId, fromName: 'Ann' });
     battles.respond(room.id, bob.playerId, true);
     const g = battles.gameFor(ann.playerId);
@@ -100,9 +102,11 @@ describe('Battles challenge flow', () => {
   });
 
   it('decline notifies the challenger', async () => {
-    const { battles, room, ann, bob, onDeclined } = await setup();
+    const { battles, room, ann, bob, onDeclined, onChange } = await setup();
     battles.challenge(room.id, ann.playerId, bob.playerId);
+    onChange.mockClear();
     battles.respond(room.id, bob.playerId, false);
+    expect(onChange).toHaveBeenCalledWith(room);
     expect(onDeclined).toHaveBeenCalledWith(room, ann.playerId, 'Bob', 'declined');
     expect(battles.incomingFor(bob.playerId)).toBeNull();
     expect(battles.gameFor(ann.playerId)).toBeUndefined();
@@ -110,20 +114,24 @@ describe('Battles challenge flow', () => {
   });
 
   it('challenge expires after 60 s', async () => {
-    const { battles, room, ann, bob, clock, onDeclined } = await setup();
+    const { battles, room, ann, bob, clock, onDeclined, onChange } = await setup();
     battles.challenge(room.id, ann.playerId, bob.playerId);
     clock.advance(CHALLENGE_TTL_MS - 1);
     expect(onDeclined).not.toHaveBeenCalled();
+    onChange.mockClear();
     clock.advance(1);
+    expect(onChange).toHaveBeenCalledWith(room);
     expect(onDeclined).toHaveBeenCalledWith(room, ann.playerId, 'Bob', 'expired');
     expect(() => battles.respond(room.id, bob.playerId, true)).toThrow('No pending challenge');
   });
 
   it('stale accept: invalid deck clears the challenge and notifies the challenger', async () => {
-    const { battles, manager, room, ann, bob, onDeclined } = await setup();
+    const { battles, manager, room, ann, bob, onDeclined, onChange } = await setup();
     battles.challenge(room.id, ann.playerId, bob.playerId);
     manager.saveDeck(room.id, ann.playerId, deckFor(room, ann, 22, 17));
+    onChange.mockClear();
     expect(() => battles.respond(room.id, bob.playerId, true)).toThrow('Deck must have at least 40 cards');
+    expect(onChange).toHaveBeenCalledWith(room);
     expect(battles.gameFor(ann.playerId)).toBeUndefined();
     expect(battles.gameFor(bob.playerId)).toBeUndefined();
     expect(battles.incomingFor(bob.playerId)).toBeNull();
@@ -188,9 +196,10 @@ describe('Battles live game', () => {
 
   it('leaving before the end concedes', async () => {
     const t = await started();
-    const { battles, room, ann, bob, onGameEnded } = t;
+    const { battles, room, ann, bob, onGameEnded, onChange } = t;
     const bobSeat = seatOf(t, bob.playerId);
     battles.leaveGame(room.id, bob.playerId);
+    expect(onChange).toHaveBeenCalledWith(room);
     expect(battles.gameFor(bob.playerId)).toBeUndefined();
     const g = battles.gameFor(ann.playerId)!;
     expect(g.state.over).toEqual({ conceded: bobSeat });
@@ -205,18 +214,23 @@ describe('Battles live game', () => {
     battles.leaveGame(room.id, bob.playerId);
     battles.leaveGame(room.id, ann.playerId);
     expect(onGameEnded).toHaveBeenLastCalledWith([ann.playerId]);
+    expect(t.clock.pending).toBe(0);
+    t.clock.advance(ENDED_GAME_TTL_MS);
+    expect(onGameEnded).toHaveBeenCalledTimes(2);
     expect(battles.gameFor(ann.playerId)).toBeUndefined();
     battles.challenge(room.id, ann.playerId, bob.playerId); // both free again
   });
 
   it('game deleted 5 minutes after it ended', async () => {
     const t = await started();
-    const { battles, room, ann, bob, clock, onGameEnded } = t;
+    const { battles, room, ann, bob, clock, onGameEnded, onChange } = t;
     battles.act(room.id, bob.playerId, { type: 'concede' });
     expect(battles.gameFor(ann.playerId)).toBeDefined();
     clock.advance(ENDED_GAME_TTL_MS - 1);
     expect(battles.gameFor(ann.playerId)).toBeDefined();
+    onChange.mockClear();
     clock.advance(1);
+    expect(onChange).toHaveBeenCalledWith(room);
     expect(onGameEnded).toHaveBeenCalledTimes(1);
     expect([...onGameEnded.mock.calls[0][0]].sort()).toEqual([ann.playerId, bob.playerId].sort());
     expect(battles.gameFor(ann.playerId)).toBeUndefined();
