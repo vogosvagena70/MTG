@@ -19,8 +19,15 @@ const isFile = (path: string) => existsSync(path) && statSync(path).isFile();
 export function createHttpHandler(opts: { staticDir: string | null }): RequestListener {
   const root = opts.staticDir ? resolve(opts.staticDir) : null;
 
-  return (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://localhost');
+  const handle: RequestListener = (req, res) => {
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost');
+    } catch {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('ok');
@@ -61,6 +68,18 @@ export function createHttpHandler(opts: { staticDir: string | null }): RequestLi
       res.end();
       return;
     }
-    createReadStream(file).pipe(res);
+    createReadStream(file)
+      .on('error', () => res.destroy())
+      .pipe(res);
+  };
+
+  return (req, res) => {
+    try {
+      handle(req, res);
+    } catch (err) {
+      console.error('http handler error', err);
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
   };
 }

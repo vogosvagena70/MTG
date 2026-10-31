@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { connect as tcpConnect, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -55,5 +55,23 @@ describe('http handler', () => {
   it('rejects path traversal', async () => {
     const base = await serve(makeDist());
     expect((await fetch(`${base}/%2e%2e%2fsecret.txt`)).status).toBe(403);
+  });
+
+  it('survives a malformed request target', async () => {
+    const base = await serve(makeDist());
+    const port = Number(new URL(base).port);
+    const raw = await new Promise<string>((resolve) => {
+      const sock = tcpConnect(port, '127.0.0.1');
+      let data = '';
+      sock.on('data', (d) => {
+        data += d.toString();
+        if (data.includes('\r\n\r\n')) sock.destroy();
+      });
+      sock.on('error', () => resolve(data));
+      sock.on('close', () => resolve(data));
+      sock.write('GET http://[ HTTP/1.1\r\nHost: x\r\n\r\n');
+    });
+    expect(raw === '' || raw.startsWith('HTTP/1.1 400')).toBe(true);
+    expect((await fetch(`${base}/health`)).status).toBe(200);
   });
 });
