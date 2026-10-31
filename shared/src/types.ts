@@ -39,3 +39,41 @@ export interface DeckSavePayload {
   main: string[]; // instanceIds from the pool
   basics: Record<Color, number>;
 }
+
+export const TIMER_OPTIONS = [30, 45, 60, 90] as const;
+
+export interface SessionInfo {
+  code: string;
+  playerId: string;
+  token: string;
+}
+
+export interface LobbyPlayer {
+  playerId: string;
+  name: string;
+  connected: boolean;
+}
+
+export interface LobbyView {
+  code: string;
+  setCode: string;
+  setName: string;
+  timerSeconds: number | null;
+  hostPlayerId: string;
+  players: LobbyPlayer[];
+}
+
+export interface TableSeat {
+  name: string;
+  isBot: boolean;
+  picked: boolean; // picked this round
+  connected: boolean; // bots are always connected
+  isYou: boolean;
+}
+
+export interface DraftStatePayload {
+  code: string;
+  view: SeatView;
+  pickDeadline: number | null; // epoch ms
+  table: TableSeat[]; // 8 seats in passing order
+}
