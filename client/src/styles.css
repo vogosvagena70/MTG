@@ -62,3 +62,11 @@ button:disabled { cursor: default; opacity: 0.6; }
 .curve { display: flex; gap: 10px; align-items: flex-end; height: 120px; }
 .curve-col { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
 .curve-bar { width: 22px; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; }
+.home input { width: 100%; padding: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.home .label { margin-bottom: 6px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: grid; gap: 12px; }
+.panel h2 { font-size: 16px; }
+.panel select, .panel input { background: var(--bg); }
+.home-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.home-row input { flex: 1; min-width: 0; }
+.code-input { text-transform: uppercase; letter-spacing: 0.3em; font-weight: 600; max-width: 140px; }
