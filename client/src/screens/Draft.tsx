@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Card, SeatView } from '@mtg/shared';
 import { CardImage } from '../components/CardImage';
+import { CardPreview, hoverTargetFrom, type HoverTarget } from '../components/CardPreview';
 import { GROUP_LABEL, groupByColor } from '../lib/cards';
 import { socket } from '../socket';
 
 export function Draft({ view }: { view: SeatView }) {
   const [pending, setPending] = useState(false);
-  const [hover, setHover] = useState<Card | null>(null);
+  const [hover, setHover] = useState<HoverTarget | null>(null);
+  const clearHover = useCallback(() => setHover(null), []);
 
   useEffect(() => {
     setPending(false);
@@ -47,7 +49,7 @@ export function Draft({ view }: { view: SeatView }) {
               </h3>
               <ul>
                 {cards.map((c) => (
-                  <li key={c.instanceId} onMouseEnter={() => setHover(c)} onMouseLeave={() => setHover(null)}>
+                  <li key={c.instanceId} onMouseEnter={(e) => setHover(hoverTargetFrom(c, e.currentTarget))} onMouseLeave={clearHover}>
                     {c.name}
                   </li>
                 ))}
@@ -56,11 +58,7 @@ export function Draft({ view }: { view: SeatView }) {
           ))}
         </aside>
       </div>
-      {hover?.imageUrl && (
-        <div className="preview">
-          <img src={hover.imageUrl} alt={hover.name} />
-        </div>
-      )}
+      <CardPreview target={hover} onDismiss={clearHover} />
     </div>
   );
 }

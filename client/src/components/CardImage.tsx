@@ -1,10 +1,11 @@
 import type { Card } from '@mtg/shared';
+import { hoverTargetFrom, type HoverTarget } from './CardPreview';
 
 interface Props {
   card: Card;
   onClick?: () => void;
   disabled?: boolean;
-  onHover?: (card: Card | null) => void;
+  onHover?: (target: HoverTarget | null) => void;
 }
 
 export function CardImage({ card, onClick, disabled, onHover }: Props) {
@@ -15,7 +16,7 @@ export function CardImage({ card, onClick, disabled, onHover }: Props) {
       onClick={onClick}
       disabled={disabled}
       title={card.name}
-      onMouseEnter={() => onHover?.(card)}
+      onMouseEnter={(e) => onHover?.(hoverTargetFrom(card, e.currentTarget))}
       onMouseLeave={() => onHover?.(null)}
     >
       {card.imageUrl ? (

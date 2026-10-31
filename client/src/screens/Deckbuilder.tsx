@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { COLORS, type Card, type Color } from '@mtg/shared';
 import { CardImage } from '../components/CardImage';
+import { CardPreview, type HoverTarget } from '../components/CardPreview';
 import { BASIC_NAMES, buildDecklist, deckSize, manaCurve } from '../lib/cards';
 import { socket } from '../socket';
 
@@ -16,7 +17,8 @@ interface Props {
 export function Deckbuilder({ pool, onNewDraft, notice }: Props) {
   const [mainIds, setMainIds] = useState<Set<string>>(() => new Set());
   const [basics, setBasics] = useState<Record<Color, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0 });
-  const [hover, setHover] = useState<Card | null>(null);
+  const [hover, setHover] = useState<HoverTarget | null>(null);
+  const clearHover = useCallback(() => setHover(null), []);
   const [status, setStatus] = useState<string | null>(null);
 
   const main = pool.filter((c) => mainIds.has(c.instanceId)).sort(byCurve);
@@ -28,6 +30,7 @@ export function Deckbuilder({ pool, onNewDraft, notice }: Props) {
 
   const toggle = (card: Card) => {
     setStatus(null);
+    setHover(null); // the card moves to the other area, so its old position is stale
     setMainIds((prev) => {
       const next = new Set(prev);
       if (next.has(card.instanceId)) next.delete(card.instanceId);
@@ -123,11 +126,7 @@ export function Deckbuilder({ pool, onNewDraft, notice }: Props) {
         </div>
       </section>
 
-      {hover?.imageUrl && (
-        <div className="preview">
-          <img src={hover.imageUrl} alt={hover.name} />
-        </div>
-      )}
+      <CardPreview target={hover} onDismiss={clearHover} />
     </div>
   );
 }

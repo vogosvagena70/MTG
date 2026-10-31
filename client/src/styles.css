@@ -34,7 +34,7 @@ button:disabled { cursor: default; opacity: 0.6; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .card-grid.small { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; }
 
-.preview { position: fixed; right: 16px; bottom: 16px; width: 300px; pointer-events: none; z-index: 10; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6)); }
+.preview { position: fixed; pointer-events: none; z-index: 10; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6)); }
 .preview img { width: 100%; border-radius: 14px; display: block; }
 .draft { padding: 16px; display: grid; gap: 14px; background: var(--felt); min-height: 100vh; }
 .draft-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
