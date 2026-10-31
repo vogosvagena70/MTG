@@ -259,6 +259,11 @@ export class RoomManager {
     return room;
   }
 
+  /** Non-throwing lookup that does not refresh activity (for timers and sweeps). */
+  peek(roomId: string): Room | undefined {
+    return this.rooms.get(roomId);
+  }
+
   findByCode(code: string): Room | undefined {
     for (const room of this.rooms.values()) if (room.code === code) return room;
     return undefined;
