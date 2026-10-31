@@ -89,3 +89,33 @@ button:disabled { cursor: default; opacity: 0.6; }
 .room-panel .roster { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .room-panel .roster li { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .challenge-banner { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 14px; }
+
+/* Battle game table */
+.game { min-height: 100vh; display: grid; grid-template-rows: auto 1fr 1fr auto auto; gap: 8px; padding: 8px; background: var(--felt); box-sizing: border-box; }
+.game .strip { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; }
+.game .strip .status { margin-left: auto; min-height: 1.2em; }
+.life { display: inline-flex; gap: 6px; align-items: center; }
+.life-total { font-size: 22px; font-weight: 700; min-width: 2ch; text-align: center; }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #1a0806; font-weight: 600; }
+.pile { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px; display: inline-flex; flex-direction: column; align-items: center; min-width: 70px; color: var(--text); }
+.pile:hover { border-color: var(--accent); }
+.pile-count { font-size: 18px; font-weight: 700; }
+.pile-label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.battlefield { position: relative; min-height: 180px; border: 1px dashed var(--border); border-radius: 8px; background: rgba(0, 0, 0, 0.18); overflow: hidden; }
+.battlefield.theirs { transform: rotate(180deg); }
+.gcard { width: 84px; aspect-ratio: 488 / 680; border-radius: 6px; overflow: hidden; border: 2px solid transparent; background: var(--panel); user-select: none; flex: none; transition: transform 0.1s; }
+.gcard img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.gcard .card-fallback { font-size: 11px; padding: 4px; }
+.gcard.on-field { position: absolute; transform: translate(-50%, -50%); }
+.gcard.on-field.tapped { transform: translate(-50%, -50%) rotate(90deg); }
+.battlefield.mine .gcard:hover, .hand-row .gcard:hover { border-color: var(--accent); }
+.hand-row { display: flex; gap: 6px; overflow-x: auto; min-height: 130px; align-items: center; padding: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.card-menu { position: fixed; z-index: 30; display: grid; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.card-menu button { background: none; border: 0; color: var(--text); text-align: left; padding: 6px 12px; border-radius: 4px; }
+.card-menu button:hover { background: var(--bg); color: var(--accent); }
+.graveyard-viewer { position: fixed; right: 12px; top: 60px; width: 340px; max-height: 60vh; overflow: auto; z-index: 20; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.game-log { position: fixed; left: 12px; bottom: 160px; width: 260px; max-height: 40vh; overflow: auto; z-index: 15; font-size: 13px; }
+.game-log ol { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 4px; }
+.game-over { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); display: flex; align-items: center; justify-content: center; z-index: 40; }
+.game-over .panel { text-align: center; padding: 24px 32px; }

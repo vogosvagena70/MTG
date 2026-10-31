@@ -7,6 +7,7 @@ import { Home } from './screens/Home';
 import { Draft } from './screens/Draft';
 import { Deckbuilder } from './screens/Deckbuilder';
 import { Lobby } from './screens/Lobby';
+import { Game } from './screens/Game';
 
 type Screen =
   | { name: 'home' }
@@ -204,7 +205,7 @@ export function App() {
     );
     return <Deckbuilder pool={screen.pool} onNewDraft={leave} notice={notice} roomPanel={panel} />;
   }
-  if (screen.name === 'game') return <p>Game in progress (Task 7)</p>;
+  if (screen.name === 'game') return <Game view={screen.view} onLeave={() => setScreen({ name: 'deck', pool: poolRef.current })} />;
   return (
     <Home
       busy={busy}

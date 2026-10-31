@@ -43,6 +43,19 @@ To check a production build locally: `npm run build`, then `NODE_ENV=production 
 
 Card data comes from Scryfall and is cached in `server/.cache/<set>.json`. Delete a file to refresh that set. Brand-new sets that Scryfall has not yet tagged as booster cards use a broader paper-cards query.
 
+## Battles
+
+After a multiplayer draft, build and save your deck, then challenge another player who has saved theirs from the room panel on the deckbuilder screen. The challenged player has 60 seconds to accept.
+
+The table is a free-play tabletop: players enforce the rules themselves.
+
+- Drag cards between your hand, battlefield and graveyard; drop on the battlefield to place a card where you want it.
+- Double-click a battlefield card, or hover it and press `T`, to tap or untap it.
+- Right-click any of your cards for a menu (To hand, To battlefield, To graveyard, To top of library).
+- Click your library to draw a card. Use the strip for life, Untap all, Shuffle, Mulligan and Concede.
+- Click a graveyard pile to browse it; the log panel shows recent actions.
+- After a game ends, choose Back to room and challenge again for a rematch.
+
 ## Status
 
 Practice decks are not used for battles yet.
