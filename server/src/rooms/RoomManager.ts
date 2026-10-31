@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { COLORS, type DeckSavePayload, type SetCards } from '@mtg/shared';
 import { botPick } from '../bots/botPick';
 import { advanceIfReady, applyPick, createDraft, ROUNDS, type DraftState } from '../draft/engine';

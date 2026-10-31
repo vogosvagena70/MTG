@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { InvalidPickError, seatView } from '../src/draft/engine';
 import { DeckError, HUMAN_SEAT, RoomManager, RoomNotFoundError, ROOM_TTL_MS, type Room } from '../src/rooms/RoomManager';
 import { makeSet } from './helpers';
