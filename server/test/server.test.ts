@@ -104,4 +104,20 @@ describe('draft server', () => {
     });
     expect(failed.message).toBe('No booster cards found for set "zzz"');
   });
+
+  it('survives malformed payloads and missing acks', async () => {
+    const client = connect();
+    const raw = client as any;
+    const err = await new Promise<{ message: string }>((r) => {
+      client.once('practice:error', r);
+      raw.emit('practice:start', null);
+    });
+    expect(err.message).toBeTruthy();
+    raw.emit('sets:list');
+    raw.emit('deck:save', null);
+    raw.emit('draft:pick', null);
+    raw.emit('room:resume', null);
+    const res = await client.emitWithAck('sets:list');
+    expect(res).toEqual({ ok: true, sets: [expect.objectContaining({ code: 'tst' })] });
+  });
 });

@@ -28,16 +28,25 @@ export function createDraftServer(deps: { manager: RoomManager; listSets: () => 
     const fail = (err: unknown) => socket.emit('practice:error', { message: message(err) });
 
     socket.on('sets:list', async (ack) => {
+      if (typeof ack !== 'function') return;
+      let result: Parameters<typeof ack>[0];
       try {
-        ack({ ok: true, sets: await deps.listSets() });
+        result = { ok: true, sets: await deps.listSets() };
       } catch (err) {
-        ack({ ok: false, message: message(err) });
+        result = { ok: false, message: message(err) };
+      }
+      try {
+        ack(result);
+      } catch {
+        // ack threw; never call it twice
       }
     });
 
-    socket.on('practice:start', async ({ setCode }) => {
+    socket.on('practice:start', async (p) => {
       try {
-        const room = await manager.createPracticeRoom(String(setCode));
+        const setCode = (p as { setCode?: unknown } | null | undefined)?.setCode;
+        if (typeof setCode !== 'string' || !setCode) throw new Error('Invalid set code');
+        const room = await manager.createPracticeRoom(setCode);
         socket.data.roomId = room.id;
         emitRoom(room);
       } catch (err) {
@@ -45,20 +54,29 @@ export function createDraftServer(deps: { manager: RoomManager; listSets: () => 
       }
     });
 
-    socket.on('draft:pick', ({ instanceId }) => {
+    socket.on('draft:pick', (p) => {
       const roomId = socket.data.roomId;
       if (!roomId) return fail(new Error('No active draft'));
       try {
-        emitRoom(manager.pick(roomId, String(instanceId)));
+        const instanceId = (p as { instanceId?: unknown } | null | undefined)?.instanceId;
+        if (typeof instanceId !== 'string') throw new Error('Invalid pick');
+        emitRoom(manager.pick(roomId, instanceId));
       } catch (err) {
-        if (err instanceof InvalidPickError) emitRoom(manager.get(roomId));
-        else fail(err);
+        if (err instanceof InvalidPickError) {
+          try {
+            emitRoom(manager.get(roomId));
+          } catch (err2) {
+            fail(err2);
+          }
+        } else fail(err);
       }
     });
 
-    socket.on('room:resume', ({ roomId }) => {
+    socket.on('room:resume', (p) => {
       try {
-        const room = manager.get(String(roomId));
+        const roomId = (p as { roomId?: unknown } | null | undefined)?.roomId;
+        if (typeof roomId !== 'string') throw new Error('Invalid room id');
+        const room = manager.get(roomId);
         socket.data.roomId = room.id;
         emitRoom(room);
       } catch (err) {
@@ -67,11 +85,17 @@ export function createDraftServer(deps: { manager: RoomManager; listSets: () => 
     });
 
     socket.on('deck:save', (deck, ack) => {
+      if (typeof ack !== 'function') return;
+      let ok = true;
       try {
         manager.saveDeck(socket.data.roomId ?? '', deck);
-        ack({ ok: true });
       } catch {
-        ack({ ok: false });
+        ok = false;
+      }
+      try {
+        ack({ ok });
+      } catch {
+        // ignore
       }
     });
   });
