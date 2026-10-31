@@ -17,10 +17,11 @@ function isDualLand(card: Card): boolean {
 
 export function baseScore(card: Card): number {
   let s = RARITY_BASE[card.rarity];
-  if (card.typeLine.includes('Basic Land')) return s - 3;
-  if (card.typeLine.includes('Creature')) s += 0.5;
+  const front = card.typeLine.split(' // ')[0];
+  if (front.includes('Basic Land')) return s - 3;
+  if (front.includes('Creature')) s += 0.5;
   if (REMOVAL.test(card.oracleText)) s += 0.75;
-  if (/\bLand\b/.test(card.typeLine) && !isDualLand(card)) s -= 1;
+  if (/\bLand\b/.test(front) && !isDualLand(card)) s -= 1;
   return s;
 }
 

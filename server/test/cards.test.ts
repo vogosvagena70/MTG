@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -52,6 +52,13 @@ describe('createScryfallClient', () => {
     expect(await createScryfallClient({ fetchFn, delayMs: 0 }).searchAll('set:zzz')).toEqual([]);
   });
 
+  it('throws ScryfallError on a 404 after the first page', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: [bolt], has_more: true, next_page: 'https://api.scryfall.com/page2' }))
+      .mockResolvedValueOnce(jsonResponse({ object: 'error' }, 404));
+    await expect(createScryfallClient({ fetchFn, delayMs: 0 }).searchAll('set:abc')).rejects.toBeInstanceOf(ScryfallError);
+  });
+
   it('throws ScryfallError on other failures', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({}, 500));
     await expect(createScryfallClient({ fetchFn, delayMs: 0 }).searchAll('set:abc')).rejects.toBeInstanceOf(ScryfallError);
@@ -90,9 +97,33 @@ describe('createCardSource.getSetCards', () => {
     expect(result.basics).toHaveLength(5);
   });
 
+  it('falls back to a broader paper query for brand-new sets', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = fakeClient({
+      'set:abc game:paper -is:promo -is:boosterfun': [bolt, basic('Plains')],
+      'set:abc type:basic': allBasics,
+    });
+    const result = await createCardSource({ client, cacheDir: tmp() }).getSetCards('abc');
+    expect(result.cards.map((c) => c.name)).toEqual(['Lightning Bolt']);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('recovers from a corrupt cache file', async () => {
+    const cacheDir = tmp();
+    writeFileSync(join(cacheDir, 'abc.json'), '{garbage');
+    const client = fakeClient({ 'set:abc is:booster': [bolt], 'set:abc type:basic': allBasics });
+    const result = await createCardSource({ client, cacheDir }).getSetCards('abc');
+    expect(result.cards).toHaveLength(1);
+    await createCardSource({ client, cacheDir }).getSetCards('abc');
+    expect(client.searchAll).toHaveBeenCalledTimes(2); // rewritten cache is valid
+  });
+
   it('throws for a set with no booster cards', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const source = createCardSource({ client: fakeClient({}), cacheDir: tmp() });
     await expect(source.getSetCards('zzz')).rejects.toThrow('No booster cards found for set "zzz"');
+    warn.mockRestore();
   });
 
   it('rejects malformed set codes without calling Scryfall', async () => {

@@ -37,9 +37,14 @@ export function createScryfallClient(opts: { fetchFn?: FetchFn; delayMs?: number
     async searchAll(q) {
       const out: ScryfallCard[] = [];
       let url: string | undefined = `${API}/cards/search?q=${encodeURIComponent(q)}&unique=cards`;
+      let first = true;
       while (url) {
         const page: ScryfallList<ScryfallCard> | null = await getJson(url);
-        if (!page) break;
+        if (!page) {
+          if (first) break; // 404 on the first page: no results
+          throw new ScryfallError('Scryfall results ended unexpectedly. Please retry.');
+        }
+        first = false;
         out.push(...page.data);
         url = page.has_more ? page.next_page : undefined;
       }

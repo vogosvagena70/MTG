@@ -6,6 +6,10 @@ import { makeCard } from './helpers';
 const card = (id: string, over: Parameters<typeof makeCard>[0] = {}) => makeCard({ instanceId: id, ...over });
 
 describe('baseScore', () => {
+  it('judges double-faced cards by their front face only', () => {
+    expect(baseScore(card('dfc', { typeLine: 'Instant // Land' }))).toBe(1);
+  });
+
   it('uses rarity base', () => {
     expect(baseScore(card('a', { rarity: 'mythic' }))).toBe(4);
     expect(baseScore(card('a', { rarity: 'rare' }))).toBe(3.5);

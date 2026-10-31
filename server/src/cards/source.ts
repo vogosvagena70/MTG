@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SetCards, SetInfo } from '@mtg/shared';
 import { ScryfallError, type ScryfallClient } from './client';
@@ -36,9 +36,19 @@ export function createCardSource(opts: {
       const code = rawCode.toLowerCase();
       if (!/^[a-z0-9]{2,6}$/.test(code)) throw new ScryfallError(`Unknown set "${rawCode}"`);
       const file = join(cacheDir, `${code}.json`);
-      if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8')) as SetCards;
+      if (existsSync(file)) {
+        try {
+          return JSON.parse(readFileSync(file, 'utf8')) as SetCards;
+        } catch {
+          rmSync(file, { force: true }); // corrupt cache: refetch
+        }
+      }
 
-      const booster = await client.searchAll(`set:${code} is:booster`);
+      let booster = await client.searchAll(`set:${code} is:booster`);
+      if (booster.length === 0) {
+        console.warn(`No is:booster cards for set "${code}"; using broader paper-card query`);
+        booster = await client.searchAll(`set:${code} game:paper -is:promo -is:boosterfun`);
+      }
       const cards = booster.filter((c) => !c.type_line.includes('Basic Land')).map(mapScryfallCard);
       if (cards.length === 0) throw new ScryfallError(`No booster cards found for set "${code}"`);
       let basics = pickBasics(await client.searchAll(`set:${code} type:basic`));
@@ -46,7 +56,8 @@ export function createCardSource(opts: {
 
       const result: SetCards = { cards, basics };
       mkdirSync(cacheDir, { recursive: true });
-      writeFileSync(file, JSON.stringify(result));
+      writeFileSync(`${file}.tmp`, JSON.stringify(result));
+      renameSync(`${file}.tmp`, file);
       return result;
     },
 
