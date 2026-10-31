@@ -77,3 +77,49 @@ export interface DraftStatePayload {
   pickDeadline: number | null; // epoch ms
   table: TableSeat[]; // 8 seats in passing order
 }
+
+export type Zone = 'library' | 'hand' | 'battlefield' | 'graveyard';
+
+export interface GameCard {
+  gid: string;
+  card: Card;
+  owner: 0 | 1;
+  tapped: boolean;
+  x: number;
+  y: number;
+}
+
+export type GameAction =
+  | { type: 'draw'; count: number }
+  | { type: 'move'; gid: string; to: Zone; x?: number; y?: number }
+  | { type: 'tap'; gid: string; tapped: boolean }
+  | { type: 'untapAll' }
+  | { type: 'shuffle' }
+  | { type: 'mulligan' }
+  | { type: 'life'; delta: number }
+  | { type: 'concede' };
+
+export interface GameView {
+  gameId: string;
+  you: 0 | 1;
+  firstPlayer: 0 | 1;
+  over: null | { conceded: 0 | 1 };
+  log: { at: number; text: string }[];
+  me: { name: string; life: number; hand: GameCard[]; battlefield: GameCard[]; graveyard: GameCard[]; libraryCount: number };
+  opp: { name: string; life: number; connected: boolean; handCount: number; battlefield: GameCard[]; graveyard: GameCard[]; libraryCount: number };
+}
+
+export interface RosterPlayer {
+  playerId: string;
+  name: string;
+  deckSaved: boolean;
+  inGame: boolean;
+  connected: boolean;
+  isYou: boolean;
+}
+
+export interface IncomingChallenge {
+  fromPlayerId: string;
+  fromName: string;
+  expiresAt: number;
+}
