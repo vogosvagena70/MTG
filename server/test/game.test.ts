@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Card, DeckSavePayload } from '@mtg/shared';
 import { buildGame, type BuildPlayer } from '../src/game/build';
 import { applyAction, parseAction } from '../src/game/actions';
+import { gameViewFor } from '../src/game/view';
 import { GameError } from '../src/game/state';
 import { makeSet } from './helpers';
 
@@ -201,5 +202,58 @@ describe('applyAction', () => {
       { type: 'life', delta: -20 }, { type: 'untapAll' }, { type: 'shuffle' }, { type: 'mulligan' }, { type: 'concede' }]) {
       expect(parseAction(ok)).toEqual(ok);
     }
+  });
+});
+
+describe('gameViewFor', () => {
+  it('shows my hand and counts for the opponent, with connection status', () => {
+    let g = build(5);
+    const bobCard = g.players[1].zones.hand[0];
+    g = applyAction(g, 1, { type: 'move', gid: bobCard, to: 'battlefield', x: 10, y: 20 }, 2);
+    g = applyAction(g, 0, { type: 'draw', count: 1 }, 3);
+    const v = gameViewFor(g, 0, [true, false]);
+    expect(v.gameId).toBe('game1');
+    expect(v.you).toBe(0);
+    expect(v.me.name).toBe('Player0');
+    expect(v.me.life).toBe(20);
+    expect(v.me.hand).toHaveLength(8);
+    expect(v.me.hand[0]).toEqual(g.cards[g.players[0].zones.hand[0]]);
+    expect(v.me.libraryCount).toBe(32);
+    expect(v.opp.name).toBe('Player1');
+    expect(v.opp.connected).toBe(false);
+    expect(v.opp.handCount).toBe(6);
+    expect(v.opp.libraryCount).toBe(33);
+    expect(v.opp.battlefield.map((c) => c.gid)).toEqual([bobCard]);
+    expect(v.opp.battlefield[0]).toMatchObject({ x: 10, y: 20, owner: 1 });
+    expect(v.log).toEqual(g.log);
+  });
+
+  it('never leaks opponent hand or any library gid', () => {
+    const g = build(9);
+    const json = JSON.stringify(gameViewFor(g, 0, [true, true]));
+    for (const gid of [...g.players[1].zones.hand, ...g.players[0].zones.library, ...g.players[1].zones.library]) {
+      expect(json).not.toContain(`"${gid}"`);
+    }
+    expect(json).not.toContain('"gid":"' + g.players[1].zones.hand[0] + '"');
+    const v1 = gameViewFor(g, 1, [false, true]);
+    expect(v1.you).toBe(1);
+    expect(v1.opp.connected).toBe(false);
+    expect(v1.me.hand.map((c) => c.gid)).toEqual(g.players[1].zones.hand);
+  });
+
+  it('returns copies of arrays, not the state arrays', () => {
+    const g = build(4);
+    const v = gameViewFor(g, 0, [true, true]);
+    expect(v.me.hand).not.toBe(g.players[0].zones.hand);
+    expect(v.me.battlefield).not.toBe(g.players[0].zones.battlefield);
+    expect(v.log).not.toBe(g.log);
+  });
+
+  it('reports over and the state firstPlayer', () => {
+    let g = build(3);
+    g = applyAction(g, 1, { type: 'concede' }, 4);
+    const v = gameViewFor(g, 0, [true, true]);
+    expect(v.over).toEqual({ conceded: 1 });
+    expect(v.firstPlayer).toBe(g.firstPlayer);
   });
 });
