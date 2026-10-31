@@ -76,3 +76,12 @@ button:disabled { cursor: default; opacity: 0.6; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display: inline-block; }
 .dot.on { background: #5cb85c; }
 .badge { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; padding: 1px 6px; margin-left: 4px; }
+.draft-header-right { display: flex; align-items: baseline; gap: 14px; }
+.countdown { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 20px; }
+.countdown.urgent { color: var(--danger); }
+.table-strip { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.seat { border: 1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+.seat.bot { color: var(--muted); }
+.seat.picked { border-color: #5cb85c; }
+.seat.you { border-color: var(--accent); font-weight: 600; }
+.seat.offline { opacity: 0.45; text-decoration: line-through; }

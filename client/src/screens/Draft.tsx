@@ -1,14 +1,29 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Card, SeatView } from '@mtg/shared';
+import type { Card, DraftStatePayload } from '@mtg/shared';
 import { CardImage } from '../components/CardImage';
 import { CardPreview, hoverTargetFrom, type HoverTarget } from '../components/CardPreview';
+import { TableStrip } from '../components/TableStrip';
 import { GROUP_LABEL, groupByColor } from '../lib/cards';
+import { secondsLeft } from '../lib/session';
 import { socket } from '../socket';
 
-export function Draft({ view }: { view: SeatView }) {
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+export function Draft({ state }: { state: DraftStatePayload }) {
+  const { view, pickDeadline, table } = state;
   const [pending, setPending] = useState(false);
   const [hover, setHover] = useState<HoverTarget | null>(null);
   const clearHover = useCallback(() => setHover(null), []);
+  const left = secondsLeft(pickDeadline, useNow(pickDeadline !== null));
+  const waitingFor = table.filter((s) => !s.isBot && !s.picked).map((s) => s.name);
 
   useEffect(() => {
     setPending(false);
@@ -25,8 +40,16 @@ export function Draft({ view }: { view: SeatView }) {
     <div className="draft">
       <header className="draft-header">
         <h1>Pack {view.packNumber} · Pick {view.pickNumber}</h1>
-        <span className="muted">{view.picks.length} / 45 picked</span>
+        <div className="draft-header-right">
+          {left !== null && view.currentPack && (
+            <span className={left <= 10 ? 'countdown urgent' : 'countdown'} aria-label="Time left to pick">
+              {left}s
+            </span>
+          )}
+          <span className="muted">{view.picks.length} / 45 picked</span>
+        </div>
       </header>
+      <TableStrip table={table} />
       <div className="draft-body">
         <section>
           {view.currentPack ? (
@@ -36,7 +59,9 @@ export function Draft({ view }: { view: SeatView }) {
               ))}
             </div>
           ) : (
-            <p className="muted">Waiting for the next pack…</p>
+            <p className="muted">
+              {waitingFor.length > 0 ? `Waiting for: ${waitingFor.join(', ')}` : 'Waiting for the next pack…'}
+            </p>
           )}
         </section>
         <aside className="picks">

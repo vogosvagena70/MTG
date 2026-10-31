@@ -124,7 +124,7 @@ export function App() {
     if (!session) return <main className="home"><p className="muted">Joining…</p></main>;
     return <Lobby lobby={screen.lobby} playerId={session.playerId} onLeave={leave} />;
   }
-  if (screen.name === 'draft') return <Draft view={screen.state.view} />;
+  if (screen.name === 'draft') return <Draft state={screen.state} />;
   if (screen.name === 'deck') return <Deckbuilder pool={screen.pool} onNewDraft={leave} notice={notice} />;
   return (
     <Home
