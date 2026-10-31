@@ -5,6 +5,7 @@ import { loadName, loadSession, roomCodeFromUrl, saveName, saveSession } from '.
 import { Home } from './screens/Home';
 import { Draft } from './screens/Draft';
 import { Deckbuilder } from './screens/Deckbuilder';
+import { Lobby } from './screens/Lobby';
 
 type Screen =
   | { name: 'home' }
@@ -118,7 +119,11 @@ export function App() {
     setScreen({ name: 'home' });
   };
 
-  if (screen.name === 'lobby') return <main className="home"><p>Lobby {screen.lobby.code} (Task 8)</p></main>;
+  if (screen.name === 'lobby') {
+    // The lobby event can arrive just before the create/join ack that stores the session.
+    if (!session) return <main className="home"><p className="muted">Joining…</p></main>;
+    return <Lobby lobby={screen.lobby} playerId={session.playerId} onLeave={leave} />;
+  }
   if (screen.name === 'draft') return <Draft view={screen.state.view} />;
   if (screen.name === 'deck') return <Deckbuilder pool={screen.pool} onNewDraft={leave} notice={notice} />;
   return (

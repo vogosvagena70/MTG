@@ -70,3 +70,9 @@ button:disabled { cursor: default; opacity: 0.6; }
 .home-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .home-row input { flex: 1; min-width: 0; }
 .code-input { text-transform: uppercase; letter-spacing: 0.3em; font-weight: 600; max-width: 140px; }
+.room-code { font-size: 48px; font-weight: 700; letter-spacing: 0.3em; color: var(--accent); }
+.players { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.players li { display: flex; align-items: center; gap: 8px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display: inline-block; }
+.dot.on { background: #5cb85c; }
+.badge { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; padding: 1px 6px; margin-left: 4px; }
