@@ -3,6 +3,7 @@ import type { Card, SeatView } from '@mtg/shared';
 import { socket } from './socket';
 import { Home } from './screens/Home';
 import { Draft } from './screens/Draft';
+import { Deckbuilder } from './screens/Deckbuilder';
 
 type Screen = { name: 'home' } | { name: 'draft'; view: SeatView } | { name: 'deck'; pool: Card[] };
 
@@ -77,6 +78,6 @@ export function App() {
   };
 
   if (screen.name === 'draft') return <Draft view={screen.view} />;
-  if (screen.name === 'deck') return <button className="btn" onClick={newDraft}>Deckbuilder (Task 10) — new draft</button>;
+  if (screen.name === 'deck') return <Deckbuilder pool={screen.pool} onNewDraft={newDraft} />;
   return <Home onStart={start} starting={starting} error={error} />;
 }
