@@ -9,6 +9,7 @@ interface SocketData {
   roomId?: string;
   playerId?: string;
   creates?: number[];
+  creating?: boolean;
 }
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 
@@ -48,8 +49,12 @@ export function createDraftServer(deps: {
   manager.onChange = (room) => {
     for (const player of room.players) {
       if (!player.socketId) continue;
-      const socket = io.sockets.sockets.get(player.socketId);
-      if (socket) sendRoomTo(socket, room, player);
+      try {
+        const socket = io.sockets.sockets.get(player.socketId);
+        if (socket) sendRoomTo(socket, room, player);
+      } catch (err) {
+        console.error('[server] failed to send room update', err);
+      }
     }
   };
 
@@ -98,12 +103,13 @@ export function createDraftServer(deps: {
 
     socket.on('room:create', async (p, ack) => {
       if (typeof ack !== 'function') return;
+      if (socket.data.creating) return reply(ack, { ok: false, message: 'Already creating a room' });
       const t = now();
       const recent = (socket.data.creates ?? []).filter((at) => t - at < CREATE_WINDOW_MS);
       if (recent.length >= CREATE_LIMIT) return reply(ack, { ok: false, message: 'Too many rooms created, wait a minute' });
       socket.data.creates = [...recent, t];
+      socket.data.creating = true;
       try {
-        leaveCurrent();
         const { room, player } = await manager.createRoom({
           name: field(p, 'name'),
           setCode: field(p, 'setCode'),
@@ -111,18 +117,25 @@ export function createDraftServer(deps: {
           practice: field(p, 'practice'),
           socketId: socket.id,
         });
+        if (!socket.connected) {
+          manager.leave(room.id, player.playerId);
+          return;
+        }
+        leaveCurrent();
         bind(room, player);
         reply(ack, { ok: true, code: room.code, playerId: player.playerId, token: player.token });
       } catch (err) {
         reply(ack, { ok: false, message: message(err) });
+      } finally {
+        socket.data.creating = false;
       }
     });
 
     socket.on('room:join', (p, ack) => {
       if (typeof ack !== 'function') return;
       try {
-        leaveCurrent();
         const { room, player } = manager.joinRoom({ code: field(p, 'code'), name: field(p, 'name'), socketId: socket.id });
+        leaveCurrent();
         bind(room, player);
         reply(ack, { ok: true, code: room.code, playerId: player.playerId, token: player.token });
       } catch (err) {
@@ -138,7 +151,7 @@ export function createDraftServer(deps: {
         if (res.replacedSocketId) {
           const old = io.sockets.sockets.get(res.replacedSocketId);
           if (old) {
-            old.emit('room:error', { message: 'Opened in another tab' });
+            old.emit('room:takeover');
             delete old.data.roomId;
             delete old.data.playerId;
           }

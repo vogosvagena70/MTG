@@ -11,6 +11,7 @@ type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 let url = '';
 let close: () => Promise<void>;
 let clock: FakeClock;
+let manager: RoomManager;
 const clients: ClientSocket[] = [];
 
 function connect(): ClientSocket {
@@ -21,7 +22,7 @@ function connect(): ClientSocket {
 
 async function start(getSetCards: (code: string) => Promise<SetCards> = async () => makeSet()) {
   clock = new FakeClock();
-  const manager = new RoomManager({ getSetCards, getSetName: async () => 'Test Set', seed: () => 1, now: () => clock.now, scheduler: clock });
+  manager = new RoomManager({ getSetCards, getSetName: async () => 'Test Set', seed: () => 1, now: () => clock.now, scheduler: clock });
   const { httpServer, io } = createDraftServer({
     manager,
     listSets: async () => [{ code: 'tst', name: 'Test Set', releasedAt: '2026-01-01', iconSvgUri: '' }],
@@ -149,10 +150,37 @@ describe('draft server', () => {
   it('tells the older tab when the same seat is opened elsewhere', async () => {
     const a = connect();
     const created = await createRoom(a);
-    const kicked = waitFor(a, 'room:error');
+    const kicked = waitFor(a, 'room:takeover');
     const b = connect();
     await b.emitWithAck('room:resume', { code: created.code, token: created.token });
-    expect(await kicked).toEqual({ message: 'Opened in another tab' });
+    await kicked;
+  });
+
+  it('keeps the current lobby when a join fails', async () => {
+    const ann = connect();
+    await createRoom(ann);
+    expect(await ann.emitWithAck('room:join', { code: 'ZZZZ', name: 'Ann' })).toEqual({ ok: false, message: 'Room not found' });
+    expect(manager.size).toBe(1);
+    expect(await ann.emitWithAck('room:start', {})).toEqual({ ok: true });
+  });
+
+  it('rejects a second create while one is pending and cleans up if the socket left', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    await close();
+    await start(async () => {
+      await gate;
+      return makeSet();
+    });
+    const c = connect();
+    c.emitWithAck('room:create', { name: 'A', setCode: 'tst', timerSeconds: null }).catch(() => {});
+    const second = await c.emitWithAck('room:create', { name: 'A', setCode: 'tst', timerSeconds: null });
+    expect(second).toEqual({ ok: false, message: 'Already creating a room' });
+    c.close();
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(manager.size).toBe(0);
   });
 
   it('runs a practice draft end to end', async () => {

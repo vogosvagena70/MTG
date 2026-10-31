@@ -26,4 +26,5 @@ export interface ServerToClientEvents {
   'draft:state': (p: DraftStatePayload) => void;
   'draft:complete': (p: { code: string; pool: Card[] }) => void;
   'room:error': (p: { message: string }) => void;
+  'room:takeover': () => void;
 }
