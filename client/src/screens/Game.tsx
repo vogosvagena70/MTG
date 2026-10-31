@@ -27,6 +27,7 @@ export function Game({ view, onLeave }: Props) {
   viewRef.current = view;
 
   const send = useCallback(async (action: GameAction) => {
+    if (viewRef.current.over) return;
     try {
       const res = await socket.timeout(5000).emitWithAck('game:action', action);
       setStatus(actionErrorText(res));
@@ -57,7 +58,10 @@ export function Game({ view, onLeave }: Props) {
       const els = document.querySelectorAll('.battlefield.mine .gcard:hover');
       const gid = els[els.length - 1]?.getAttribute('data-gid');
       const gc = viewRef.current.me.battlefield.find((c) => c.gid === gid);
-      if (gc) void send({ type: 'tap', gid: gc.gid, tapped: !gc.tapped });
+      if (gc && !viewRef.current.over) {
+        setHover(null);
+        void send({ type: 'tap', gid: gc.gid, tapped: !gc.tapped });
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -75,6 +79,7 @@ export function Game({ view, onLeave }: Props) {
   const armed = (which: Exclude<Confirm, null>, label: string, run: () => void) => (
     <button
       type="button"
+      disabled={!!view.over}
       className={`btn${confirm === which ? ' btn-danger' : ''}`}
       onClick={() => {
         if (confirm === which) {
@@ -94,6 +99,7 @@ export function Game({ view, onLeave }: Props) {
   const over = view.over;
   const concededName = over ? (over.conceded === view.you ? me.name : opp.name) : '';
   const menuMove = (to: Zone) => {
+    setHover(null);
     if (menu) move(menu.gc.gid, to, 50, 50);
     setMenu(null);
   };
@@ -122,9 +128,9 @@ export function Game({ view, onLeave }: Props) {
       <section className="strip">
         <strong>{me.name}</strong>
         <span className="life">
-          <button type="button" className="btn" aria-label="Lose 1 life" onClick={() => void send({ type: 'life', delta: -1 })}>-</button>
+          <button type="button" className="btn" aria-label="Lose 1 life" disabled={!!over} onClick={() => void send({ type: 'life', delta: -1 })}>-</button>
           <span className="life-total">{me.life}</span>
-          <button type="button" className="btn" aria-label="Gain 1 life" onClick={() => void send({ type: 'life', delta: 1 })}>+</button>
+          <button type="button" className="btn" aria-label="Gain 1 life" disabled={!!over} onClick={() => void send({ type: 'life', delta: 1 })}>+</button>
         </span>
         <ZonePile label="Library" count={me.libraryCount} title="Click to draw a card" onClick={() => void send({ type: 'draw', count: 1 })} />
         <ZonePile
@@ -133,8 +139,8 @@ export function Game({ view, onLeave }: Props) {
           onClick={() => setViewer(viewer === 'me' ? null : 'me')}
           onDropCard={(gid) => move(gid, 'graveyard')}
         />
-        <button type="button" className="btn" onClick={() => void send({ type: 'untapAll' })}>Untap all</button>
-        <button type="button" className="btn" onClick={() => void send({ type: 'shuffle' })}>Shuffle</button>
+        <button type="button" className="btn" disabled={!!over} onClick={() => void send({ type: 'untapAll' })}>Untap all</button>
+        <button type="button" className="btn" disabled={!!over} onClick={() => void send({ type: 'shuffle' })}>Shuffle</button>
         {armed('mulligan', 'Mulligan', () => void send({ type: 'mulligan' }))}
         {armed('concede', 'Concede', () => void send({ type: 'concede' }))}
         <span className="status warn" role="status">{status}</span>

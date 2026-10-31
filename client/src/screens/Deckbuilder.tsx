@@ -10,14 +10,16 @@ const byCurve = (a: Card, b: Card) => a.manaValue - b.manaValue || a.name.locale
 
 interface Props {
   pool: Card[];
+  /** Instance ids of the main-deck cards (owned by App so it survives the game screen). */
+  main: Set<string>;
+  basics: Record<Color, number>;
+  onChangeDeck: (main: Set<string>, basics: Record<Color, number>) => void;
   onNewDraft: () => void;
   notice?: string | null;
   roomPanel?: ReactNode;
 }
 
-export function Deckbuilder({ pool, onNewDraft, notice, roomPanel }: Props) {
-  const [mainIds, setMainIds] = useState<Set<string>>(() => new Set());
-  const [basics, setBasics] = useState<Record<Color, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0 });
+export function Deckbuilder({ pool, main: mainIds, basics, onChangeDeck, onNewDraft, notice, roomPanel }: Props) {
   const [hover, setHover] = useState<HoverTarget | null>(null);
   const clearHover = useCallback(() => setHover(null), []);
   const [status, setStatus] = useState<string | null>(null);
@@ -32,17 +34,15 @@ export function Deckbuilder({ pool, onNewDraft, notice, roomPanel }: Props) {
   const toggle = (card: Card) => {
     setStatus(null);
     setHover(null); // the card moves to the other area, so its old position is stale
-    setMainIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(card.instanceId)) next.delete(card.instanceId);
-      else next.add(card.instanceId);
-      return next;
-    });
+    const next = new Set(mainIds);
+    if (next.has(card.instanceId)) next.delete(card.instanceId);
+    else next.add(card.instanceId);
+    onChangeDeck(next, basics);
   };
 
   const adjust = (color: Color, delta: number) => {
     setStatus(null);
-    setBasics((b) => ({ ...b, [color]: Math.max(0, b[color] + delta) }));
+    onChangeDeck(mainIds, { ...basics, [color]: Math.max(0, basics[color] + delta) });
   };
 
   const copy = async () => {

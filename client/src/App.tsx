@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Ack, Card, DraftStatePayload, GameView, IncomingChallenge, LobbyView, RosterPlayer, SessionInfo } from '@mtg/shared';
+import type { Ack, Card, Color, DraftStatePayload, GameView, IncomingChallenge, LobbyView, RosterPlayer, SessionInfo } from '@mtg/shared';
 import { RoomPanel } from './components/RoomPanel';
 import { socket } from './socket';
 import { loadName, loadSession, roomCodeFromUrl, saveName, saveSession } from './lib/session';
@@ -16,6 +16,8 @@ type Screen =
   | { name: 'deck'; pool: Card[] }
   | { name: 'game'; view: GameView };
 
+const EMPTY_BASICS: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [session, setSession] = useState<SessionInfo | null>(() => loadSession());
@@ -25,6 +27,8 @@ export function App() {
   const [roster, setRoster] = useState<RosterPlayer[] | null>(null);
   const [incoming, setIncoming] = useState<IncomingChallenge | null>(null);
   const [battleStatus, setBattleStatus] = useState<string | null>(null);
+  const [deckMain, setDeckMain] = useState<Set<string>>(() => new Set());
+  const [deckBasics, setDeckBasics] = useState<Record<Color, number>>(EMPTY_BASICS);
   const poolRef = useRef<Card[]>([]);
   const screenRef = useRef(screen);
   screenRef.current = screen;
@@ -33,6 +37,16 @@ export function App() {
   const remember = (s: SessionInfo | null) => {
     saveSession(s);
     setSession(s);
+  };
+
+  const resetBattleState = () => {
+    setRoster(null);
+    setIncoming(null);
+    setBattleStatus(null);
+  };
+  const resetDeck = () => {
+    setDeckMain(new Set());
+    setDeckBasics(EMPTY_BASICS);
   };
 
   useEffect(() => {
@@ -63,6 +77,8 @@ export function App() {
       setBattleStatus(reason === 'expired' ? `Challenge to ${byName} expired` : `${byName} declined`);
     const onGameState = (view: GameView) => {
       setIncoming(null);
+      const cur = screenRef.current;
+      if (cur.name !== 'game' || cur.view.gameId !== view.gameId) setBattleStatus(null);
       setScreen({ name: 'game', view });
     };
     const onGameEnded = () => {
@@ -76,6 +92,8 @@ export function App() {
         setNotice(`${message}. You can still export or download this deck, but Save is unavailable.`);
       } else {
         setError(message);
+        resetBattleState();
+        resetDeck();
         setScreen({ name: 'home' });
       }
     };
@@ -85,6 +103,8 @@ export function App() {
       setBusy(false);
       setNotice(null);
       setError('This draft was opened in another tab.');
+      resetBattleState();
+      resetDeck();
       setScreen({ name: 'home' });
     };
     const onConnect = async () => {
@@ -131,6 +151,8 @@ export function App() {
     takenOver.current = false;
     setBusy(true);
     setError(null);
+    resetBattleState();
+    resetDeck();
     try {
       const res = await request;
       setBusy(false);
@@ -165,9 +187,8 @@ export function App() {
     remember(null);
     setNotice(null);
     setError(null);
-    setRoster(null);
-    setIncoming(null);
-    setBattleStatus(null);
+    resetBattleState();
+    resetDeck();
     poolRef.current = [];
     setScreen({ name: 'home' });
   };
@@ -203,9 +224,22 @@ export function App() {
     const panel = roster && (
       <RoomPanel roster={roster} incoming={incoming} onChallenge={challenge} onRespond={respond} status={battleStatus} />
     );
-    return <Deckbuilder pool={screen.pool} onNewDraft={leave} notice={notice} roomPanel={panel} />;
+    return (
+      <Deckbuilder
+        pool={screen.pool}
+        main={deckMain}
+        basics={deckBasics}
+        onChangeDeck={(m, b) => {
+          setDeckMain(m);
+          setDeckBasics(b);
+        }}
+        onNewDraft={leave}
+        notice={notice}
+        roomPanel={panel}
+      />
+    );
   }
-  if (screen.name === 'game') return <Game view={screen.view} onLeave={() => setScreen({ name: 'deck', pool: poolRef.current })} />;
+  if (screen.name === 'game') return <Game key={screen.view.gameId} view={screen.view} onLeave={() => setScreen({ name: 'deck', pool: poolRef.current })} />;
   return (
     <Home
       busy={busy}
