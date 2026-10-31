@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Ack, Card, DraftStatePayload, LobbyView, SessionInfo } from '@mtg/shared';
+import type { Ack, Card, DraftStatePayload, GameView, IncomingChallenge, LobbyView, RosterPlayer, SessionInfo } from '@mtg/shared';
+import { RoomPanel } from './components/RoomPanel';
 import { socket } from './socket';
 import { loadName, loadSession, roomCodeFromUrl, saveName, saveSession } from './lib/session';
 import { Home } from './screens/Home';
@@ -11,7 +12,8 @@ type Screen =
   | { name: 'home' }
   | { name: 'lobby'; lobby: LobbyView }
   | { name: 'draft'; state: DraftStatePayload }
-  | { name: 'deck'; pool: Card[] };
+  | { name: 'deck'; pool: Card[] }
+  | { name: 'game'; view: GameView };
 
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
@@ -19,6 +21,10 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [roster, setRoster] = useState<RosterPlayer[] | null>(null);
+  const [incoming, setIncoming] = useState<IncomingChallenge | null>(null);
+  const [battleStatus, setBattleStatus] = useState<string | null>(null);
+  const poolRef = useRef<Card[]>([]);
   const screenRef = useRef(screen);
   screenRef.current = screen;
   const takenOver = useRef(false); // another tab owns the saved session; stop auto-resuming
@@ -40,8 +46,26 @@ export function App() {
       setScreen({ name: 'draft', state });
     };
     const onComplete = ({ pool }: { pool: Card[] }) => {
+      poolRef.current = pool;
       setNotice(null);
-      setScreen((s) => (s.name === 'deck' ? s : { name: 'deck', pool }));
+      setScreen((s) => (s.name === 'deck' || s.name === 'game' ? s : { name: 'deck', pool }));
+    };
+    const backToDeck = () => setScreen({ name: 'deck', pool: poolRef.current });
+    const onRoster = ({ players }: { players: RosterPlayer[] }) => {
+      setRoster(players);
+      setIncoming(null); // a still-pending challenge is re-sent right after the roster
+      const you = players.find((p) => p.isYou);
+      if (screenRef.current.name === 'game' && you && !you.inGame) backToDeck();
+    };
+    const onChallenged = (c: IncomingChallenge) => setIncoming(c);
+    const onDeclined = ({ byName, reason }: { byName: string; reason: 'declined' | 'expired' }) =>
+      setBattleStatus(reason === 'expired' ? `Challenge to ${byName} expired` : `${byName} declined`);
+    const onGameState = (view: GameView) => {
+      setIncoming(null);
+      setScreen({ name: 'game', view });
+    };
+    const onGameEnded = () => {
+      if (screenRef.current.name === 'game') backToDeck();
     };
     const onError = ({ message }: { message: string }) => {
       saveSession(null);
@@ -78,6 +102,11 @@ export function App() {
     socket.on('room:lobby', onLobby);
     socket.on('draft:state', onState);
     socket.on('draft:complete', onComplete);
+    socket.on('battle:roster', onRoster);
+    socket.on('battle:challenged', onChallenged);
+    socket.on('battle:declined', onDeclined);
+    socket.on('game:state', onGameState);
+    socket.on('game:ended', onGameEnded);
     socket.on('room:error', onError);
     socket.on('room:takeover', onTakeover);
     socket.on('connect', onConnect);
@@ -86,6 +115,11 @@ export function App() {
       socket.off('room:lobby', onLobby);
       socket.off('draft:state', onState);
       socket.off('draft:complete', onComplete);
+      socket.off('battle:roster', onRoster);
+      socket.off('battle:challenged', onChallenged);
+      socket.off('battle:declined', onDeclined);
+      socket.off('game:state', onGameState);
+      socket.off('game:ended', onGameEnded);
       socket.off('room:error', onError);
       socket.off('room:takeover', onTakeover);
       socket.off('connect', onConnect);
@@ -130,7 +164,32 @@ export function App() {
     remember(null);
     setNotice(null);
     setError(null);
+    setRoster(null);
+    setIncoming(null);
+    setBattleStatus(null);
+    poolRef.current = [];
     setScreen({ name: 'home' });
+  };
+
+  const challenge = async (playerId: string) => {
+    setBattleStatus(null);
+    try {
+      const res = await socket.timeout(10_000).emitWithAck('battle:challenge', { playerId });
+      setBattleStatus(res.ok ? 'Challenge sent' : res.message);
+    } catch {
+      setBattleStatus('The server did not respond.');
+    }
+  };
+
+  const respond = async (accept: boolean) => {
+    setIncoming(null);
+    setBattleStatus(null);
+    try {
+      const res = await socket.timeout(10_000).emitWithAck('battle:respond', { accept });
+      if (!res.ok) setBattleStatus(res.message);
+    } catch {
+      setBattleStatus('The server did not respond.');
+    }
   };
 
   if (screen.name === 'lobby') {
@@ -139,7 +198,13 @@ export function App() {
     return <Lobby lobby={screen.lobby} playerId={session.playerId} onLeave={leave} />;
   }
   if (screen.name === 'draft') return <Draft state={screen.state} />;
-  if (screen.name === 'deck') return <Deckbuilder pool={screen.pool} onNewDraft={leave} notice={notice} />;
+  if (screen.name === 'deck') {
+    const panel = roster && (
+      <RoomPanel roster={roster} incoming={incoming} onChallenge={challenge} onRespond={respond} status={battleStatus} />
+    );
+    return <Deckbuilder pool={screen.pool} onNewDraft={leave} notice={notice} roomPanel={panel} />;
+  }
+  if (screen.name === 'game') return <p>Game in progress (Task 7)</p>;
   return (
     <Home
       busy={busy}

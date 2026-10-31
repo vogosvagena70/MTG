@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { COLORS, type Card, type Color } from '@mtg/shared';
 import { CardImage } from '../components/CardImage';
 import { CardPreview, type HoverTarget } from '../components/CardPreview';
@@ -12,9 +12,10 @@ interface Props {
   pool: Card[];
   onNewDraft: () => void;
   notice?: string | null;
+  roomPanel?: ReactNode;
 }
 
-export function Deckbuilder({ pool, onNewDraft, notice }: Props) {
+export function Deckbuilder({ pool, onNewDraft, notice, roomPanel }: Props) {
   const [mainIds, setMainIds] = useState<Set<string>>(() => new Set());
   const [basics, setBasics] = useState<Record<Color, number>>({ W: 0, U: 0, B: 0, R: 0, G: 0 });
   const [hover, setHover] = useState<HoverTarget | null>(null);
@@ -88,6 +89,8 @@ export function Deckbuilder({ pool, onNewDraft, notice }: Props) {
         </div>
       </header>
       {(status ?? notice) && <p className="muted">{status ?? notice}</p>}
+
+      {roomPanel}
 
       <div className="deck-tools">
         <div className="basics">
