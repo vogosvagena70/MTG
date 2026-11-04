@@ -6,6 +6,8 @@ export interface PlayerState {
   name: string;
   life: number;
   zones: Record<Zone, string[]>; // gids; library[0] is the top
+  /** Library cards this player is currently allowed to see and move; absent when no window is open. */
+  peek?: { mode: 'top' | 'search'; gids: string[] };
 }
 
 export interface GameState {
@@ -17,6 +19,8 @@ export interface GameState {
   log: { at: number; text: string }[];
   over: null | { conceded: 0 | 1 };
   rng: Rng;
+  /** Tokens created so far, for unique token gids ("t1", "t2", …). */
+  tokenCount?: number;
 }
 
 export class GameError extends Error {

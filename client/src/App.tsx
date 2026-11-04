@@ -32,6 +32,7 @@ export function App() {
   const poolRef = useRef<Card[]>([]);
   const screenRef = useRef(screen);
   screenRef.current = screen;
+  const sandbox = useRef(false); // the current game is a solo test table
   const takenOver = useRef(false); // another tab owns the saved session; stop auto-resuming
 
   const remember = (s: SessionInfo | null) => {
@@ -108,6 +109,12 @@ export function App() {
       setScreen({ name: 'home' });
     };
     const onConnect = async () => {
+      if (sandbox.current && screenRef.current.name === 'game') {
+        // test tables live only as long as the connection
+        sandbox.current = false;
+        setError('Connection lost. The test table was closed.');
+        setScreen({ name: 'home' });
+      }
       if (takenOver.current) return;
       const s = loadSession();
       if (!s) return;
@@ -193,6 +200,25 @@ export function App() {
     setScreen({ name: 'home' });
   };
 
+  const testTable = async (name: string, setCode: string) => {
+    if (name) saveName(name);
+    setBusy(true);
+    setError(null);
+    sandbox.current = true;
+    try {
+      const res = await socket.timeout(30_000).emitWithAck('game:sandbox', { setCode, name });
+      setBusy(false);
+      if (!res.ok) {
+        sandbox.current = false;
+        setError(res.message);
+      }
+    } catch {
+      sandbox.current = false;
+      setBusy(false);
+      setError('The server did not respond.');
+    }
+  };
+
   const challenge = async (playerId: string) => {
     setBattleStatus(null);
     try {
@@ -239,7 +265,16 @@ export function App() {
       />
     );
   }
-  if (screen.name === 'game') return <Game key={screen.view.gameId} view={screen.view} onLeave={() => setScreen({ name: 'deck', pool: poolRef.current })} />;
+  if (screen.name === 'game') {
+    if (sandbox.current) {
+      const exit = () => {
+        sandbox.current = false;
+        setScreen({ name: 'home' });
+      };
+      return <Game key={screen.view.gameId} view={screen.view} onLeave={exit} leaveLabel="Back to home" />;
+    }
+    return <Game key={screen.view.gameId} view={screen.view} onLeave={() => setScreen({ name: 'deck', pool: poolRef.current })} />;
+  }
   return (
     <Home
       busy={busy}
@@ -248,6 +283,7 @@ export function App() {
       initialCode={roomCodeFromUrl(location.search)}
       onCreate={createRoom}
       onJoin={joinRoom}
+      onTestTable={testTable}
     />
   );
 }

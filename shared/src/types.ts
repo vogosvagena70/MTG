@@ -78,7 +78,7 @@ export interface DraftStatePayload {
   table: TableSeat[]; // 8 seats in passing order
 }
 
-export type Zone = 'library' | 'hand' | 'battlefield' | 'graveyard';
+export type Zone = 'library' | 'hand' | 'battlefield' | 'graveyard' | 'exile';
 
 export interface GameCard {
   gid: string;
@@ -87,17 +87,32 @@ export interface GameCard {
   tapped: boolean;
   x: number;
   y: number;
+  /** A plain counter tally on a battlefield card (may be negative); purely a marker, no rules effect. */
+  counters: number;
+  /** Set for player-made tokens (no image); a token ceases to exist when it leaves the battlefield. */
+  token?: { power: string; toughness: string };
 }
 
 export type GameAction =
   | { type: 'draw'; count: number }
-  | { type: 'move'; gid: string; to: Zone; x?: number; y?: number }
+  /** `bottom` applies when moving to the library: bottom instead of top. */
+  | { type: 'move'; gid: string; to: Zone; x?: number; y?: number; bottom?: boolean }
   | { type: 'tap'; gid: string; tapped: boolean }
   | { type: 'untapAll' }
   | { type: 'shuffle' }
   | { type: 'mulligan' }
   | { type: 'life'; delta: number }
-  | { type: 'concede' };
+  | { type: 'concede' }
+  /** Add (positive) or remove (negative) counters on one of your battlefield cards. */
+  | { type: 'counters'; gid: string; delta: number }
+  /** Create a token on your battlefield. Power/toughness are short labels such as "2", "*" or "X". */
+  | { type: 'token'; name: string; power: string; toughness: string }
+  /** Open your top `count` library cards (only you see them); they can then be moved like any other card. */
+  | { type: 'searchTop'; count: number }
+  /** Open your whole library. */
+  | { type: 'searchLibrary' }
+  /** Close the open library window. */
+  | { type: 'closeLibrary' };
 
 export interface GameView {
   gameId: string;
@@ -105,8 +120,12 @@ export interface GameView {
   firstPlayer: 0 | 1;
   over: null | { conceded: 0 | 1 };
   log: { at: number; text: string }[];
-  me: { name: string; life: number; hand: GameCard[]; battlefield: GameCard[]; graveyard: GameCard[]; libraryCount: number };
-  opp: { name: string; life: number; connected: boolean; handCount: number; battlefield: GameCard[]; graveyard: GameCard[]; libraryCount: number };
+  me: {
+    name: string; life: number; hand: GameCard[]; battlefield: GameCard[]; graveyard: GameCard[]; exile: GameCard[]; libraryCount: number;
+    /** The open library window: top-X cards in library order, or the whole library sorted by name. */
+    peek: { mode: 'top' | 'search'; cards: GameCard[] } | null;
+  };
+  opp: { name: string; life: number; connected: boolean; handCount: number; battlefield: GameCard[]; graveyard: GameCard[]; exile: GameCard[]; libraryCount: number };
 }
 
 export interface RosterPlayer {

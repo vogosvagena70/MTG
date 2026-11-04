@@ -63,10 +63,10 @@ export function buildGame(input: {
     const library: string[] = [];
     for (const card of decks[seat]) {
       const gid = `g${++n}`;
-      cards[gid] = { gid, card, owner: seat as 0 | 1, tapped: false, x: 50, y: 50 };
+      cards[gid] = { gid, card, owner: seat as 0 | 1, tapped: false, x: 50, y: 50, counters: 0 };
       library.push(gid);
     }
-    return { playerId: p.playerId, name: p.name, life: 20, zones: { library, hand: [], battlefield: [], graveyard: [] } } as PlayerState;
+    return { playerId: p.playerId, name: p.name, life: 20, zones: { library, hand: [], battlefield: [], graveyard: [], exile: [] } } as PlayerState;
   }) as [PlayerState, PlayerState];
 
   for (const p of players) shuffleInPlace(p.zones.library, rng);

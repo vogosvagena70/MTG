@@ -25,6 +25,7 @@ const { httpServer } = createDraftServer({
   manager,
   createBattles: (hooks) => (battles = new Battles({ manager, ...hooks })),
   listSets: () => source.listDraftableSets(),
+  getSetCards: (code) => source.getSetCards(code),
   requestListener: createHttpHandler({ staticDir }),
 });
 

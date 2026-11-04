@@ -34,7 +34,7 @@ button:disabled { cursor: default; opacity: 0.6; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .card-grid.small { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; }
 
-.preview { position: fixed; pointer-events: none; z-index: 10; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6)); }
+.preview { position: fixed; pointer-events: none; z-index: 50; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6)); }
 .preview img { width: 100%; border-radius: 14px; display: block; }
 .draft { padding: 16px; display: grid; gap: 14px; background: var(--felt); min-height: 100vh; }
 .draft-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -103,7 +103,7 @@ button:disabled { cursor: default; opacity: 0.6; }
 .pile-label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
 .battlefield { position: relative; min-height: 180px; border: 1px dashed var(--border); border-radius: 8px; background: rgba(0, 0, 0, 0.18); overflow: hidden; }
 .battlefield.theirs { transform: rotate(180deg); }
-.gcard { width: 84px; aspect-ratio: 488 / 680; border-radius: 6px; overflow: hidden; border: 2px solid transparent; background: var(--panel); user-select: none; flex: none; transition: transform 0.1s; }
+.gcard { position: relative; width: 84px; aspect-ratio: 488 / 680; border-radius: 6px; overflow: hidden; border: 2px solid transparent; background: var(--panel); user-select: none; flex: none; transition: transform 0.1s; }
 .gcard img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .gcard .card-fallback { font-size: 11px; padding: 4px; }
 .gcard.on-field { position: absolute; transform: translate(-50%, -50%); }
@@ -115,7 +115,29 @@ button:disabled { cursor: default; opacity: 0.6; }
 .card-menu button:hover { background: var(--bg); color: var(--accent); }
 .graveyard-viewer { position: fixed; right: 12px; top: 60px; width: 340px; max-height: 60vh; overflow: auto; z-index: 20; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.game-log { position: fixed; left: 12px; bottom: 160px; width: 260px; max-height: 40vh; overflow: auto; z-index: 15; font-size: 13px; }
+.game-log { position: fixed; left: 12px; top: 60px; width: 260px; max-height: 40vh; overflow: auto; z-index: 15; font-size: 13px; }
 .game-log ol { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 4px; }
 .game-over { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); display: flex; align-items: center; justify-content: center; z-index: 40; }
 .game-over .panel { text-align: center; padding: 24px 32px; }
+.mechanics { position: relative; display: inline-block; }
+.mechanics-menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 25; min-width: 180px; padding: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.mechanics-row { display: flex; gap: 8px; align-items: center; }
+.mechanics-row input, .token-name-input { width: 64px; padding: 7px 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.library-viewer { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); width: min(680px, calc(100vw - 24px)); max-height: 60vh; overflow: auto; z-index: 20; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.library-hint { margin: 0; font-size: 13px; }
+.library-viewer .gcard { width: 100%; }
+.counter-badge { position: absolute; top: 4px; right: 4px; min-width: 26px; padding: 1px 6px; border-radius: 999px; background: #2f7d4a; color: #fff; font-weight: 700; font-size: 13px; text-align: center; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); pointer-events: none; }
+.counter-badge.negative { background: var(--danger); }
+.battlefield.theirs .counter-badge { transform: rotate(180deg); }
+.card-menu-counters { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--border); margin-top: 4px; }
+.card-menu-counters span:first-child { flex: 1; }
+.card-menu .card-menu-counters button { padding: 2px 10px; border: 1px solid var(--border); }
+.card-menu-count { min-width: 2ch; text-align: center; font-weight: 700; }
+.mechanics-menu { display: grid; gap: 10px; min-width: 230px; }
+.mechanics-token { display: grid; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
+.mechanics-token .token-name-input { width: 100%; }
+.mechanics-token .mechanics-row input { width: 48px; text-align: center; }
+.token-face { display: flex; flex-direction: column; height: 100%; padding: 6px; background: linear-gradient(160deg, #3a4250, #232933); border: 1px solid #56606e; border-radius: 4px; text-align: center; }
+.token-name { font-weight: 700; font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
+.token-type { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+.token-pt { margin-top: auto; align-self: flex-end; font-weight: 700; font-size: 15px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; }

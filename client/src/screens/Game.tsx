@@ -8,21 +8,31 @@ import { CardMenu } from '../components/game/CardMenu';
 import { GameLog } from '../components/game/GameLog';
 import { GraveyardViewer } from '../components/game/GraveyardViewer';
 import { HandRow } from '../components/game/HandRow';
+import { MechanicsMenu } from '../components/game/MechanicsMenu';
+import { LibraryViewer } from '../components/game/LibraryViewer';
 import { ZonePile } from '../components/game/ZonePile';
 
 interface Props {
   view: GameView;
   onLeave: () => void;
+  /** Label for the game-over button. */
+  leaveLabel?: string;
 }
 
 type Confirm = 'mulligan' | 'concede' | null;
+/** Which public pile the side viewer shows. */
+type Pile = { who: 'me' | 'opp'; zone: 'graveyard' | 'exile' };
+const ZONE_NAME = { graveyard: 'graveyard', exile: 'exile' } as const;
 
-export function Game({ view, onLeave }: Props) {
+export function Game({ view, onLeave, leaveLabel = 'Back to room' }: Props) {
   const [hover, setHover] = useState<HoverTarget | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [menu, setMenu] = useState<{ gc: GameCard; x: number; y: number } | null>(null);
-  const [viewer, setViewer] = useState<'me' | 'opp' | null>(null);
+  const [viewer, setViewer] = useState<Pile | null>(null);
+  const toggleViewer = (who: Pile['who'], zone: Pile['zone']) =>
+    setViewer((v) => (v && v.who === who && v.zone === zone ? null : { who, zone }));
+  const [showLog, setShowLog] = useState(false);
   const viewRef = useRef(view);
   viewRef.current = view;
 
@@ -39,12 +49,14 @@ export function Game({ view, onLeave }: Props) {
   const dismissHover = useCallback(() => setHover(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  const move = (gid: string, to: Zone, x?: number, y?: number) => {
+  const move = (gid: string, to: Zone, x?: number, y?: number, bottom?: boolean) => {
     const from = zoneOf(viewRef.current, gid);
     if (!from) return;
     // dropping onto the zone the card is already in (other than repositioning) is a no-op
-    if (from === to && to !== 'battlefield') return;
-    void send(to === 'battlefield' ? { type: 'move', gid, to, x, y } : { type: 'move', gid, to });
+    if (from === to && to !== 'battlefield' && to !== 'library') return;
+    if (to === 'battlefield') void send({ type: 'move', gid, to, x, y });
+    else if (to === 'library') void send({ type: 'move', gid, to, bottom });
+    else void send({ type: 'move', gid, to });
   };
 
   const toggleTap = (gc: GameCard) => void send({ type: 'tap', gid: gc.gid, tapped: !gc.tapped });
@@ -98,9 +110,11 @@ export function Game({ view, onLeave }: Props) {
   const { me, opp } = view;
   const over = view.over;
   const concededName = over ? (over.conceded === view.you ? me.name : opp.name) : '';
-  const menuMove = (to: Zone) => {
+  // the live copy of the right-clicked card, if it is on your battlefield (so the counter shown stays current)
+  const menuCard = menu ? me.battlefield.find((c) => c.gid === menu.gc.gid) : undefined;
+  const menuMove = (to: Zone, bottom?: boolean) => {
     setHover(null);
-    if (menu) move(menu.gc.gid, to, 50, 50);
+    if (menu) move(menu.gc.gid, to, 50, 50, bottom);
     setMenu(null);
   };
 
@@ -112,7 +126,8 @@ export function Game({ view, onLeave }: Props) {
         <span>Life {opp.life}</span>
         <span>Hand {opp.handCount}</span>
         <ZonePile label="Library" count={opp.libraryCount} />
-        <ZonePile label="Graveyard" count={opp.graveyard.length} onClick={() => setViewer(viewer === 'opp' ? null : 'opp')} />
+        <ZonePile label="Graveyard" count={opp.graveyard.length} onClick={() => toggleViewer('opp', 'graveyard')} />
+        <ZonePile label="Exile" count={opp.exile.length} onClick={() => toggleViewer('opp', 'exile')} />
       </section>
 
       <Battlefield cards={opp.battlefield} mine={false} onHover={setHover} />
@@ -132,17 +147,32 @@ export function Game({ view, onLeave }: Props) {
           <span className="life-total">{me.life}</span>
           <button type="button" className="btn" aria-label="Gain 1 life" disabled={!!over} onClick={() => void send({ type: 'life', delta: 1 })}>+</button>
         </span>
-        <ZonePile label="Library" count={me.libraryCount} title="Click to draw a card" onClick={() => void send({ type: 'draw', count: 1 })} />
+        <ZonePile label="Library" count={me.libraryCount} />
         <ZonePile
           label="Graveyard"
           count={me.graveyard.length}
-          onClick={() => setViewer(viewer === 'me' ? null : 'me')}
+          onClick={() => toggleViewer('me', 'graveyard')}
           onDropCard={(gid) => move(gid, 'graveyard')}
         />
+        <ZonePile
+          label="Exile"
+          count={me.exile.length}
+          onClick={() => toggleViewer('me', 'exile')}
+          onDropCard={(gid) => move(gid, 'exile')}
+        />
+        <button type="button" className="btn" disabled={!!over || me.libraryCount === 0} onClick={() => void send({ type: 'draw', count: 1 })}>Draw</button>
         <button type="button" className="btn" disabled={!!over} onClick={() => void send({ type: 'untapAll' })}>Untap all</button>
         <button type="button" className="btn" disabled={!!over} onClick={() => void send({ type: 'shuffle' })}>Shuffle</button>
+        <MechanicsMenu
+          disabled={!!over}
+          libraryCount={me.libraryCount}
+          onSearchTop={(count) => void send({ type: 'searchTop', count })}
+          onSearchLibrary={() => void send({ type: 'searchLibrary' })}
+          onToken={(name, power, toughness) => void send({ type: 'token', name, power, toughness })}
+        />
         {armed('mulligan', 'Mulligan', () => void send({ type: 'mulligan' }))}
         {armed('concede', 'Concede', () => void send({ type: 'concede' }))}
+        <button type="button" className="btn" onClick={() => setShowLog(!showLog)}>{showLog ? 'Hide log' : 'Show log'}</button>
         <span className="status warn" role="status">{status}</span>
       </section>
 
@@ -155,23 +185,47 @@ export function Game({ view, onLeave }: Props) {
 
       {viewer && (
         <GraveyardViewer
-          title={viewer === 'me' ? 'Your graveyard' : `${opp.name}'s graveyard`}
-          cards={viewer === 'me' ? me.graveyard : opp.graveyard}
-          mine={viewer === 'me'}
+          title={viewer.who === 'me' ? `Your ${ZONE_NAME[viewer.zone]}` : `${opp.name}'s ${ZONE_NAME[viewer.zone]}`}
+          cards={(viewer.who === 'me' ? me : opp)[viewer.zone]}
+          mine={viewer.who === 'me'}
           onHover={setHover}
           onMenu={(gc, x, y) => setMenu({ gc, x, y })}
           onClose={() => setViewer(null)}
         />
       )}
-      <GameLog log={view.log} />
-      {menu && <CardMenu x={menu.x} y={menu.y} onPick={menuMove} onClose={closeMenu} />}
+      {me.peek && (
+        <LibraryViewer
+          mode={me.peek.mode}
+          cards={me.peek.cards}
+          onHover={setHover}
+          onMenu={(gc, x, y) => setMenu({ gc, x, y })}
+          onClose={() => {
+            setHover(null);
+            void send({ type: 'closeLibrary' });
+          }}
+          onShuffleClose={() => {
+            setHover(null);
+            void send({ type: 'shuffle' });
+          }}
+        />
+      )}
+      {showLog && <GameLog log={view.log} onClose={() => setShowLog(false)} />}
+      {menu && (
+        <CardMenu
+          x={menu.x}
+          y={menu.y}
+          onPick={menuMove}
+          onClose={closeMenu}
+          counters={menuCard && !over ? { value: menuCard.counters, onChange: (delta) => void send({ type: 'counters', gid: menuCard.gid, delta }) } : undefined}
+        />
+      )}
       <CardPreview target={hover} onDismiss={dismissHover} />
 
       {over && (
         <div className="game-over" role="dialog">
           <div className="panel">
             <h2>{concededName} conceded</h2>
-            <button type="button" className="btn btn-primary" onClick={() => void leave()}>Back to room</button>
+            <button type="button" className="btn btn-primary" onClick={() => void leave()}>{leaveLabel}</button>
           </div>
         </div>
       )}
@@ -183,5 +237,7 @@ function zoneOf(view: GameView, gid: string): Zone | null {
   if (view.me.battlefield.some((c) => c.gid === gid)) return 'battlefield';
   if (view.me.hand.some((c) => c.gid === gid)) return 'hand';
   if (view.me.graveyard.some((c) => c.gid === gid)) return 'graveyard';
+  if (view.me.exile.some((c) => c.gid === gid)) return 'exile';
+  if (view.me.peek?.cards.some((c) => c.gid === gid)) return 'library';
   return null;
 }

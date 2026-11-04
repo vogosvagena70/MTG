@@ -30,6 +30,7 @@ async function start(getSetCards: (code: string) => Promise<SetCards> = async ()
   const { httpServer, io } = createDraftServer({
     manager,
     listSets: async () => [{ code: 'tst', name: 'Test Set', releasedAt: '2026-01-01', iconSvgUri: '' }],
+    getSetCards,
     now: () => clock.now,
     createBattles: withBattles
       ? (hooks) => (battles = new Battles({ manager, now: () => clock.now, scheduler: clock, seed: () => 7, ...hooks }))
@@ -425,5 +426,22 @@ describe('battles', () => {
     const c = connect();
     await createRoom(c);
     expect(await c.emitWithAck('battle:challenge', { playerId: 'x' })).toEqual({ ok: false, message: 'Battles are not available' });
+  });
+
+  it('opens a solo test table without a room', async () => {
+    const c = connect();
+    const first = waitFor(c, 'game:state');
+    expect(await c.emitWithAck('game:sandbox', { setCode: 'tst', name: 'Sam' })).toEqual({ ok: true });
+    const view = await first;
+    expect(view.me.name).toBe('Sam');
+    expect(view.me.hand).toHaveLength(7);
+    expect(view.opp.handCount).toBe(7);
+
+    const drawn = waitFor(c, 'game:state', (v) => v.me.hand.length === 8);
+    expect(await c.emitWithAck('game:action', { type: 'draw', count: 1 })).toEqual({ ok: true });
+    expect((await drawn).me.libraryCount).toBe(32);
+
+    expect(await c.emitWithAck('game:leave', {})).toEqual({ ok: true });
+    expect(await c.emitWithAck('game:action', { type: 'draw', count: 1 })).toEqual({ ok: false, message: 'Battles are not available' });
   });
 });

@@ -34,6 +34,8 @@ export interface ClientToServerEvents {
   'battle:respond': (p: { accept: boolean }, ack: (res: Ack) => void) => void;
   'game:action': (p: GameAction, ack: (res: Ack) => void) => void;
   'game:leave': (p: Record<string, never>, ack: (res: Ack) => void) => void;
+  /** Solo test table against an idle opponent, with random decks from the set. */
+  'game:sandbox': (p: { setCode: string; name: string }, ack: (res: Ack) => void) => void;
 }
 
 export interface ServerToClientEvents {

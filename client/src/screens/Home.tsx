@@ -9,9 +9,10 @@ interface Props {
   initialCode: string;
   onCreate: (name: string, setCode: string, timerSeconds: number | null, practice: boolean) => void;
   onJoin: (name: string, code: string) => void;
+  onTestTable: (name: string, setCode: string) => void;
 }
 
-export function Home({ busy, error, initialName, initialCode, onCreate, onJoin }: Props) {
+export function Home({ busy, error, initialName, initialCode, onCreate, onJoin, onTestTable }: Props) {
   const [sets, setSets] = useState<SetInfo[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [setCode, setSetCode] = useState('');
@@ -108,6 +109,14 @@ export function Home({ busy, error, initialName, initialCode, onCreate, onJoin }
           </button>
           <button className="btn" onClick={() => onCreate(name.trim(), setCode, null, true)} disabled={!canCreate}>
             Practice vs bots
+          </button>
+          <button
+            className="btn"
+            onClick={() => onTestTable(name.trim(), setCode)}
+            disabled={!setCode || busy}
+            title="Jump straight to the game table with a random deck from this set"
+          >
+            Test table
           </button>
         </div>
         {busy && <p className="muted">Opening packs… the first load of a set can take a few seconds.</p>}

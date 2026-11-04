@@ -1,19 +1,15 @@
-import { useState } from 'react';
-
-export function GameLog({ log }: { log: { at: number; text: string }[] }) {
-  const [open, setOpen] = useState(true);
+export function GameLog({ log, onClose }: { log: { at: number; text: string }[]; onClose: () => void }) {
   return (
     <aside className="game-log panel">
-      <button type="button" className="btn" onClick={() => setOpen(!open)}>
-        {open ? 'Hide log' : 'Show log'}
-      </button>
-      {open && (
-        <ol>
-          {[...log].reverse().map((l, i) => (
-            <li key={log.length - i}>{l.text}</li>
-          ))}
-        </ol>
-      )}
+      <div className="row-between">
+        <h2>Log</h2>
+        <button type="button" className="btn" onClick={onClose} aria-label="Close log">×</button>
+      </div>
+      <ol>
+        {[...log].reverse().map((l, i) => (
+          <li key={log.length - i}>{l.text}</li>
+        ))}
+      </ol>
     </aside>
   );
 }
