@@ -57,6 +57,12 @@ describe('generatePack', () => {
     expect(pack[14].rarity).toBe('common');
   });
 
+  it('fills slots from other rarities when a set is mostly rares', () => {
+    const pack = generatePack(makeSet({ common: 1, uncommon: 13, rare: 63, mythic: 0 }), mulberry32(1));
+    expect(pack.filter((c) => !c.typeLine.includes('Basic Land'))).toHaveLength(14);
+    expect(new Set(pack.map((c) => c.name)).size).toBe(pack.length);
+  });
+
   it('throws when there are not enough cards', () => {
     expect(() => generatePack(makeSet({ common: 5, uncommon: 0, rare: 0, mythic: 0 }), mulberry32(1)))
       .toThrow('Not enough cards in set to build a pack');

@@ -250,6 +250,7 @@ export class RoomManager {
       counts[c] = n;
     }
     room.decks.set(playerId, { main: [...(main as string[])], basics: counts });
+    this.onChange(room);
   }
 
   get(roomId: string): Room {
@@ -257,6 +258,11 @@ export class RoomManager {
     if (!room) throw new RoomError('Room not found or expired');
     this.touch(room);
     return room;
+  }
+
+  /** Non-throwing lookup that does not refresh activity (for timers and sweeps). */
+  peek(roomId: string): Room | undefined {
+    return this.rooms.get(roomId);
   }
 
   findByCode(code: string): Room | undefined {

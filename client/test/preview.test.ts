@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { previewPosition } from '../src/lib/preview';
+import { focusedPreviewPosition, largeImageUrl, previewPosition } from '../src/lib/preview';
 
 const viewport = { width: 1600, height: 900 };
 const rect = (left: number, top: number, width = 150, height = 209) => ({
@@ -39,5 +39,29 @@ describe('previewPosition', () => {
     expect(pos.width).toBeLessThanOrEqual(360 - 16);
     expect(pos.left).toBeGreaterThanOrEqual(8);
     expect(pos.left + pos.width).toBeLessThanOrEqual(360 - 8);
+  });
+});
+
+describe('focusedPreviewPosition', () => {
+  it('fills the height of a wide window, centered, and is bigger than the regular preview', () => {
+    const pos = focusedPreviewPosition(viewport);
+    expect(pos.height).toBeGreaterThan(previewPosition(rect(100, 100), viewport).height);
+    expect(pos.height).toBeLessThanOrEqual(viewport.height - 16);
+    expect(pos.height).toBeGreaterThan(viewport.height - 20);
+    expect(pos.left).toBe(Math.round((viewport.width - pos.width) / 2));
+    expect(pos.top).toBe(Math.round((viewport.height - pos.height) / 2));
+  });
+
+  it('fits a narrow window by width', () => {
+    const pos = focusedPreviewPosition({ width: 400, height: 900 });
+    expect(pos.width).toBe(384);
+    expect(pos.left).toBe(8);
+    expect(pos.top).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('largeImageUrl', () => {
+  it('asks Scryfall for the large size of the same image', () => {
+    expect(largeImageUrl('https://cards.scryfall.io/normal/front/a/b/ab.jpg?1')).toBe('https://cards.scryfall.io/large/front/a/b/ab.jpg?1');
   });
 });

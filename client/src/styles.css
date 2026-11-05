@@ -34,7 +34,7 @@ button:disabled { cursor: default; opacity: 0.6; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .card-grid.small { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; }
 
-.preview { position: fixed; pointer-events: none; z-index: 10; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6)); }
+.preview { position: fixed; pointer-events: none; z-index: 50; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6)); }
 .preview img { width: 100%; border-radius: 14px; display: block; }
 .draft { padding: 16px; display: grid; gap: 14px; background: var(--felt); min-height: 100vh; }
 .draft-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -85,3 +85,74 @@ button:disabled { cursor: default; opacity: 0.6; }
 .seat.picked { border-color: #5cb85c; }
 .seat.you { border-color: var(--accent); font-weight: 600; }
 .seat.offline { opacity: 0.45; text-decoration: line-through; }
+
+.room-panel .roster { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.room-panel .roster li { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.challenge-banner { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 14px; }
+
+/* Battle game table */
+.game { min-height: 100vh; display: grid; grid-template-rows: auto 1fr 1fr auto auto; gap: 8px; padding: 8px; background: var(--felt); box-sizing: border-box; }
+.game .strip { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; }
+.game .strip .status { margin-left: auto; min-height: 1.2em; }
+.life { display: inline-flex; gap: 6px; align-items: center; }
+.life-total { font-size: 22px; font-weight: 700; min-width: 2ch; text-align: center; }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #1a0806; font-weight: 600; }
+.pile { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px; display: inline-flex; flex-direction: column; align-items: center; min-width: 70px; color: var(--text); }
+.pile:hover { border-color: var(--accent); }
+.pile-count { font-size: 18px; font-weight: 700; }
+.pile-label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.battlefield { position: relative; min-height: 180px; border: 1px dashed var(--border); border-radius: 8px; background: rgba(0, 0, 0, 0.18); overflow: hidden; }
+.battlefield.theirs { transform: rotate(180deg); }
+.gcard { position: relative; width: 84px; aspect-ratio: 488 / 680; border-radius: 6px; overflow: hidden; border: 2px solid transparent; background: var(--panel); user-select: none; flex: none; transition: transform 0.1s; }
+.gcard img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.gcard .card-fallback { font-size: 11px; padding: 4px; }
+.gcard.on-field { position: absolute; transform: translate(-50%, -50%); }
+.gcard.on-field.tapped { transform: translate(-50%, -50%) rotate(90deg); }
+.battlefield.mine .gcard:hover, .hand-row .gcard:hover { border-color: var(--accent); }
+.hand-row { display: flex; gap: 6px; overflow-x: auto; min-height: 130px; align-items: center; padding: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.card-menu { position: fixed; z-index: 30; display: grid; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.card-menu button { background: none; border: 0; color: var(--text); text-align: left; padding: 6px 12px; border-radius: 4px; }
+.card-menu button:hover { background: var(--bg); color: var(--accent); }
+.graveyard-viewer { position: fixed; right: 12px; top: 60px; width: 340px; max-height: 60vh; overflow: auto; z-index: 20; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.game-log { position: fixed; left: 12px; top: 60px; width: 260px; max-height: 40vh; overflow: auto; z-index: 15; font-size: 13px; }
+.game-log ol { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 4px; }
+.game-over { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); display: flex; align-items: center; justify-content: center; z-index: 40; }
+.game-over .panel { text-align: center; padding: 24px 32px; }
+.mechanics { position: relative; display: inline-block; }
+.mechanics-menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 25; min-width: 180px; padding: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.library-viewer { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); width: min(1100px, calc(100vw - 24px)); grid-template-columns: minmax(0, 1fr); z-index: 20; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.library-hint { margin: 0; font-size: 13px; }
+.library-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+.library-row .gcard { width: 130px; flex: none; }
+.counter-badge { position: absolute; top: 4px; right: 4px; min-width: 26px; padding: 1px 6px; border-radius: 999px; background: #3b6ea8; color: #fff; font-weight: 700; font-size: 13px; text-align: center; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); pointer-events: none; }
+.counter-badge.pt { top: auto; right: auto; bottom: 4px; left: 4px; background: #2f7d4a; }
+.counter-badge.pt.negative { background: var(--danger); }
+.battlefield.theirs .counter-badge { transform: rotate(180deg); }
+.card-menu-counters { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--border); }
+.card-menu-counters span:first-child { flex: 1; }
+.card-menu .card-menu-counters button { padding: 2px 10px; border: 1px solid var(--border); }
+.card-menu-count { min-width: 2ch; text-align: center; font-weight: 700; }
+.mechanics-menu { display: grid; gap: 10px; min-width: 230px; }
+.token-face { display: flex; flex-direction: column; height: 100%; padding: 6px; background: linear-gradient(160deg, #3a4250, #232933); border: 1px solid #56606e; border-radius: 4px; text-align: center; }
+.token-name { font-weight: 700; font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
+.token-type { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+.token-pt { margin-top: auto; align-self: flex-end; font-weight: 700; font-size: 15px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; }
+.card-back { display: block; width: 100%; height: 100%; border-radius: 4px; background: radial-gradient(ellipse at center, #b8863b 0 22%, #6b3f1d 23% 42%, #2f1c10 43%); border: 3px solid #1c120a; box-sizing: border-box; }
+.card-menu .card-menu-flip { border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; margin-top: 4px; }
+.dialog-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 35; padding: 16px; }
+.token-dialog { width: min(420px, 100%); }
+.token-dialog input, .token-dialog textarea { width: 100%; padding: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.token-dialog textarea { resize: vertical; }
+.token-dialog .label { margin-bottom: 6px; font-size: 13px; }
+.token-dialog .warn { margin: 0; font-size: 13px; }
+.token-dialog-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.token-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.token-description { font-size: 9px; line-height: 1.2; margin-top: 4px; overflow: hidden; overflow-wrap: anywhere; color: var(--text); flex: 1 1 0; min-height: 0; }
+.token-preview { display: grid; gap: 6px; padding: 14px; background: linear-gradient(160deg, #3a4250, #232933); border: 1px solid #56606e; border-radius: 14px; }
+.token-preview p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.card-menu-pt { border-top: 0; padding-top: 0; }
+.card-menu-pt input { width: 52px; padding: 2px 4px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; text-align: center; }
+.card-menu-counters .card-menu-count { flex: none; }
+.preview.focused img { border-radius: 3.5vh; }
+.preview.focused .token-preview { font-size: 28px; padding: 32px; gap: 16px; border-radius: 3.5vh; }

@@ -1,8 +1,15 @@
 import { createServer, type RequestListener } from 'node:http';
 import { Server, type Socket } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents, SetInfo } from '@mtg/shared';
+import type { ClientToServerEvents, ServerToClientEvents, SetCards, SetInfo } from '@mtg/shared';
+import { ScryfallError } from './cards/client';
 import { InvalidPickError } from './draft/engine';
-import type { HumanSeat, Room, RoomManager } from './rooms/manager';
+import { applyAction, parseAction } from './game/actions';
+import { buildSandboxGame } from './game/sandbox';
+import { GameError, type GameState } from './game/state';
+import { gameViewFor } from './game/view';
+import type { Battles, BattlesDeps, LiveGame } from './rooms/battles';
+import { rosterFor } from './rooms/battleViews';
+import { RoomError, type HumanSeat, type Room, type RoomManager } from './rooms/manager';
 import { completeFor, draftStateFor, lobbyView } from './rooms/views';
 
 interface SocketData {
@@ -16,7 +23,13 @@ type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<strin
 export const CREATE_LIMIT = 2;
 export const CREATE_WINDOW_MS = 60_000;
 
-const message = (err: unknown) => (err instanceof Error ? err.message : 'Unexpected error');
+const message = (err: unknown) => {
+  if (err instanceof RoomError || err instanceof GameError || err instanceof InvalidPickError || err instanceof ScryfallError) {
+    return err.message;
+  }
+  console.error('[server] unexpected error', err);
+  return 'Unexpected error';
+};
 const field = (p: unknown, key: string): unknown =>
   p && typeof p === 'object' ? (p as Record<string, unknown>)[key] : undefined;
 
@@ -32,8 +45,12 @@ function reply(ack: unknown, res: unknown): void {
 export function createDraftServer(deps: {
   manager: RoomManager;
   listSets: () => Promise<SetInfo[]>;
+  /** Card data for solo test tables; without it, test tables are unavailable. */
+  getSetCards?: (code: string) => Promise<SetCards>;
   requestListener?: RequestListener;
   now?: () => number;
+  /** Builds the Battles service, wired to this server's socket broadcasts. */
+  createBattles?: (hooks: Pick<BattlesDeps, 'onChange' | 'onGame' | 'onDeclined' | 'onGameEnded'>) => Battles;
 }) {
   const { manager } = deps;
   const now = deps.now ?? Date.now;
@@ -46,19 +63,84 @@ export function createDraftServer(deps: {
     else socket.emit('draft:complete', completeFor(room, player.playerId));
   };
 
-  manager.onChange = (room) => {
+  const sendGameTo = (socket: AppSocket, room: Room, player: HumanSeat, game: LiveGame) => {
+    const seat = game.state.players[0].playerId === player.playerId ? 0 : 1;
+    const connected = game.state.players.map(
+      (gp) => room.players.find((rp) => rp.playerId === gp.playerId)?.socketId != null,
+    ) as [boolean, boolean];
+    socket.emit('game:state', gameViewFor(game.state, seat, connected));
+  };
+
+  const sendBattleTo = (socket: AppSocket, room: Room, player: HumanSeat) => {
+    if (!battles || room.phase !== 'complete' || room.practice) return;
+    socket.emit('battle:roster', { players: rosterFor(room, battles, player.playerId) });
+    const incoming = battles.incomingFor(player.playerId);
+    if (incoming) socket.emit('battle:challenged', incoming);
+    const game = battles.gameFor(player.playerId);
+    if (game && game.roomId === room.id) sendGameTo(socket, room, player, game);
+  };
+
+  const eachConnected = (room: Room, send: (socket: AppSocket, player: HumanSeat) => void) => {
     for (const player of room.players) {
       if (!player.socketId) continue;
       try {
         const socket = io.sockets.sockets.get(player.socketId);
-        if (socket) sendRoomTo(socket, room, player);
+        if (socket) send(socket, player);
       } catch (err) {
         console.error('[server] failed to send room update', err);
       }
     }
   };
 
+  /** Room view plus battle extras, for room-level changes. */
+  const broadcastRoom = (room: Room) =>
+    eachConnected(room, (socket, player) => {
+      sendRoomTo(socket, room, player);
+      sendBattleTo(socket, room, player);
+    });
+  /** Battle extras only (roster, challenge, game view), for battle-level changes. */
+  const broadcastBattle = (room: Room) => eachConnected(room, (socket, player) => sendBattleTo(socket, room, player));
+  /** A game action: only the two players in the game get their view. */
+  const broadcastGame = (game: LiveGame) => {
+    const room = manager.peek(game.roomId);
+    if (!room) return;
+    const ids = new Set(game.state.players.map((p) => p.playerId));
+    eachConnected(room, (socket, player) => {
+      if (ids.has(player.playerId)) sendGameTo(socket, room, player, game);
+    });
+  };
+  manager.onChange = broadcastRoom;
+
+  const battles = deps.createBattles?.({
+    onChange: broadcastBattle,
+    onGame: broadcastGame,
+    onDeclined: (room, challengerId, byName, reason) => {
+      try {
+        const sid = room.players.find((p) => p.playerId === challengerId)?.socketId;
+        if (sid) io.sockets.sockets.get(sid)?.emit('battle:declined', { byName, reason });
+      } catch (err) {
+        console.error('[server] failed to send decline', err);
+      }
+    },
+    onGameEnded: (playerIds) => {
+      for (const id of playerIds) {
+        try {
+          for (const s of io.sockets.sockets.values()) {
+            if (s.data.playerId === id) s.emit('game:ended', {});
+          }
+        } catch (err) {
+          console.error('[server] failed to send game end', err);
+        }
+      }
+    },
+  });
+
+  /** Solo test tables, one per socket, never part of a room. */
+  const sandboxes = new Map<string, GameState>();
+  let sandboxCount = 0;
+
   io.on('connection', (socket) => {
+    const sendSandbox = (state: GameState) => socket.emit('game:state', gameViewFor(state, 0, [true, true]));
     const bind = (room: Room, player: HumanSeat) => {
       socket.data.roomId = room.id;
       socket.data.playerId = player.playerId;
@@ -211,7 +293,82 @@ export function createDraftServer(deps: {
       }
     });
 
-    socket.on('disconnect', () => manager.disconnect(socket.id));
+    const battleAction = (ack: unknown, run: (b: Battles, cur: { room: Room; player: HumanSeat }) => void) => {
+      if (typeof ack !== 'function') return;
+      if (!battles) return reply(ack, { ok: false, message: 'Battles are not available' });
+      const cur = current();
+      if (!cur) return reply(ack, { ok: false, message: 'You are not in a room' });
+      try {
+        run(battles, cur);
+        reply(ack, { ok: true });
+      } catch (err) {
+        reply(ack, { ok: false, message: message(err) });
+      }
+    };
+
+    socket.on('battle:challenge', (p, ack) =>
+      battleAction(ack, (b, cur) => {
+        const target = field(p, 'playerId');
+        if (typeof target !== 'string') throw new RoomError('Invalid challenge');
+        b.challenge(cur.room.id, cur.player.playerId, target);
+      }),
+    );
+
+    socket.on('battle:respond', (p, ack) =>
+      battleAction(ack, (b, cur) => {
+        const accept = field(p, 'accept');
+        if (typeof accept !== 'boolean') throw new RoomError('Invalid response');
+        b.respond(cur.room.id, cur.player.playerId, accept);
+      }),
+    );
+
+    socket.on('game:sandbox', async (p, ack) => {
+      if (typeof ack !== 'function') return;
+      const setCode = field(p, 'setCode');
+      const name = field(p, 'name');
+      if (!deps.getSetCards) return reply(ack, { ok: false, message: 'Test tables are not available' });
+      if (typeof setCode !== 'string') return reply(ack, { ok: false, message: 'Pick a set first' });
+      try {
+        const set = await deps.getSetCards(setCode);
+        const state = buildSandboxGame({
+          set,
+          seed: Math.floor(Math.random() * 2 ** 31),
+          now: now(),
+          name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 20) : 'You',
+          id: `sandbox-${++sandboxCount}`,
+        });
+        if (!socket.connected) return;
+        sandboxes.set(socket.id, state);
+        reply(ack, { ok: true });
+        sendSandbox(state);
+      } catch (err) {
+        reply(ack, { ok: false, message: message(err) });
+      }
+    });
+
+    socket.on('game:action', (p, ack) => {
+      const sandbox = sandboxes.get(socket.id);
+      if (!sandbox) return battleAction(ack, (b, cur) => b.act(cur.room.id, cur.player.playerId, p));
+      if (typeof ack !== 'function') return;
+      try {
+        const next = applyAction(sandbox, 0, parseAction(p), now());
+        sandboxes.set(socket.id, next);
+        reply(ack, { ok: true });
+        sendSandbox(next);
+      } catch (err) {
+        reply(ack, { ok: false, message: message(err) });
+      }
+    });
+
+    socket.on('game:leave', (p, ack) => {
+      if (sandboxes.delete(socket.id)) return reply(ack, { ok: true });
+      battleAction(ack, (b, cur) => b.leaveGame(cur.room.id, cur.player.playerId));
+    });
+
+    socket.on('disconnect', () => {
+      sandboxes.delete(socket.id);
+      manager.disconnect(socket.id);
+    });
   });
 
   return { httpServer, io };

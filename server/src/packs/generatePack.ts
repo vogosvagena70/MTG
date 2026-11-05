@@ -1,4 +1,5 @@
 import type { Card, Rarity, SetCards } from '@mtg/shared';
+import { ScryfallError } from '../cards/client';
 import type { Rng } from '../rng';
 
 export function generatePack(set: SetCards, rng: Rng): Card[] {
@@ -7,8 +8,10 @@ export function generatePack(set: SetCards, rng: Rng): Card[] {
 
   const used = new Set<string>();
   const pack: Card[] = [];
+  // Sets with an unusual rarity mix (e.g. bonus sets that are mostly rares) fill an empty slot from any rarity.
+  const fallback = [by.common, by.uncommon, by.rare, by.mythic];
   const take = (pools: Card[][]) => {
-    for (const pool of pools) {
+    for (const pool of [...pools, ...fallback]) {
       const avail = pool.filter((c) => !used.has(c.name));
       if (avail.length > 0) {
         const c = avail[Math.floor(rng() * avail.length)];
@@ -17,7 +20,7 @@ export function generatePack(set: SetCards, rng: Rng): Card[] {
         return;
       }
     }
-    throw new Error('Not enough cards in set to build a pack');
+    throw new ScryfallError('Not enough cards in set to build a pack');
   };
 
   const mythicSlot = by.mythic.length > 0 && rng() < 1 / 8;
