@@ -279,7 +279,7 @@ describe('battles', () => {
     const seen = await bobNext;
     expect(seen.opp.handCount).toBe(8);
     const json = JSON.stringify(seen);
-    for (const c of a.me.hand) expect(json).not.toContain(c.gid);
+    for (const c of a.me.hand) expect(json).not.toContain(`"${c.gid}"`);
     expect(b.opp.handCount).toBe(7);
 
     const card = a.me.hand[0];

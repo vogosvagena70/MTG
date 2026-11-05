@@ -152,7 +152,7 @@ describe('applyAction', () => {
     expect(() => applyAction(g, 0, { type: 'tap', gid: g.players[0].zones.hand[0], tapped: true }, 1)).toThrow(GameError);
   });
 
-  it('untapAll, shuffle, mulligan', () => {
+  it('untapAll, shuffle', () => {
     let g = newGame();
     const gid = g.players[0].zones.hand[0];
     g = applyAction(g, 0, { type: 'move', gid, to: 'battlefield' }, 1);
@@ -164,10 +164,6 @@ describe('applyAction', () => {
     const s = applyAction(g, 0, { type: 'shuffle' }, 2);
     expect([...s.players[0].zones.library].sort()).toEqual(before);
     expect(last(s)).toBe('Player0 shuffled their library');
-    const m = applyAction(newGame(), 0, { type: 'mulligan' }, 2);
-    expect(m.players[0].zones.hand).toHaveLength(7);
-    expect(m.players[0].zones.library).toHaveLength(33);
-    expect(last(m)).toBe('Player0 took a mulligan');
   });
 
   it('life and concede', () => {
@@ -196,7 +192,7 @@ describe('applyAction', () => {
     const snap = () => JSON.stringify({ ...g, rng: undefined });
     const before = snap();
     applyAction(g, 0, { type: 'move', gid: g.players[0].zones.hand[0], to: 'battlefield', x: 5 }, 1);
-    applyAction(g, 0, { type: 'mulligan' }, 1);
+    applyAction(g, 0, { type: 'shuffle' }, 1);
     expect(snap()).toBe(before);
   });
 
@@ -207,9 +203,10 @@ describe('applyAction', () => {
     }
     for (const ok of [{ type: 'draw', count: 3 }, { type: 'move', gid: 'g1', to: 'hand' },
       { type: 'move', gid: 'g1', to: 'battlefield', x: 1, y: 2 }, { type: 'tap', gid: 'g1', tapped: false },
-      { type: 'life', delta: -20 }, { type: 'untapAll' }, { type: 'shuffle' }, { type: 'mulligan' }, { type: 'concede' }]) {
+      { type: 'life', delta: -20 }, { type: 'untapAll' }, { type: 'shuffle' }, { type: 'concede' }]) {
       expect(parseAction(ok)).toEqual(ok);
     }
+    expect(() => parseAction({ type: 'mulligan' })).toThrow(GameError);
   });
 });
 
@@ -273,30 +270,69 @@ describe('counters', () => {
     return { gid, g: applyAction(g, 0, { type: 'move', gid, to: 'battlefield', x: 10, y: 10 }, 6) };
   };
 
-  it('adds and removes counters, going negative freely', () => {
-    let { g, gid } = onField();
-    g = applyAction(g, 0, { type: 'counters', gid, delta: 1 }, 7);
-    g = applyAction(g, 0, { type: 'counters', gid, delta: -3 }, 8);
-    expect(g.cards[gid].counters).toBe(-2);
-    expect(g.log.at(-1)!.text).toBe(`Player0: ${g.cards[gid].card.name} counters 1 → -2`);
-    expect(gameViewFor(g, 1, [true, true]).opp.battlefield.find((c) => c.gid === gid)!.counters).toBe(-2);
+  it('tracks regular counters and never lets them go below 0', () => {
+    const start = onField();
+    const gid = start.gid;
+    let g = applyAction(start.g, 0, { type: 'counters', gid, delta: 3 }, 7);
+    g = applyAction(g, 0, { type: 'counters', gid, delta: -1 }, 8);
+    expect(g.cards[gid].counters).toBe(2);
+    expect(g.cards[gid].ptCounters).toEqual({ power: 0, toughness: 0 });
+    expect(g.log.at(-1)!.text).toBe(`Player0: ${g.cards[gid].card.name} counters 3 → 2`);
+    expect(() => applyAction(g, 0, { type: 'counters', gid, delta: -3 }, 9)).toThrow('No counters to remove');
   });
 
-  it('clears counters when the card leaves the battlefield', () => {
-    let { g, gid } = onField();
-    g = applyAction(g, 0, { type: 'counters', gid, delta: 2 }, 7);
-    g = applyAction(g, 0, { type: 'move', gid, to: 'battlefield', x: 50, y: 50 }, 8);
-    expect(g.cards[gid].counters).toBe(2); // repositioning keeps them
-    g = applyAction(g, 0, { type: 'move', gid, to: 'graveyard' }, 9);
+  it('keeps a running total of any power/toughness amounts', () => {
+    const start = onField();
+    const gid = start.gid;
+    let g = applyAction(start.g, 0, { type: 'ptCounters', gid, power: 1, toughness: 1 }, 7);
+    expect(g.log.at(-1)!.text).toBe(`Player0: ${g.cards[gid].card.name} is now +1/+1`);
+    g = applyAction(g, 0, { type: 'ptCounters', gid, power: 2, toughness: 0 }, 8);
+    expect(g.cards[gid].ptCounters).toEqual({ power: 3, toughness: 1 });
+    expect(g.log.at(-1)!.text).toBe(`Player0: ${g.cards[gid].card.name} is now +3/+1`);
+    g = applyAction(g, 0, { type: 'ptCounters', gid, power: 2, toughness: 0 }, 9);
+    expect(g.cards[gid].ptCounters).toEqual({ power: 5, toughness: 1 });
+    g = applyAction(g, 0, { type: 'ptCounters', gid, power: -6, toughness: -3 }, 10);
+    expect(g.cards[gid].ptCounters).toEqual({ power: -1, toughness: -2 });
+    expect(g.log.at(-1)!.text).toBe(`Player0: ${g.cards[gid].card.name} is now -1/-2`);
+    expect(gameViewFor(g, 1, [true, true]).opp.battlefield[0].ptCounters).toEqual({ power: -1, toughness: -2 });
     expect(g.cards[gid].counters).toBe(0);
+  });
+
+  it('caps totals so a badge stays readable', () => {
+    const start = onField();
+    const gid = start.gid;
+    let g = start.g;
+    for (let i = 0; i < 10; i++) g = applyAction(g, 0, { type: 'ptCounters', gid, power: 99, toughness: 0 }, 7);
+    g = applyAction(g, 0, { type: 'ptCounters', gid, power: 9, toughness: 0 }, 8);
+    expect(g.cards[gid].ptCounters.power).toBe(999);
+    expect(() => applyAction(g, 0, { type: 'ptCounters', gid, power: 1, toughness: 0 }, 9)).toThrow('Too many counters');
+  });
+
+  it('keeps both kinds on one card and clears them when it leaves the battlefield', () => {
+    const start = onField();
+    const gid = start.gid;
+    let g = applyAction(start.g, 0, { type: 'counters', gid, delta: 2 }, 7);
+    g = applyAction(g, 0, { type: 'ptCounters', gid, power: 1, toughness: 2 }, 8);
+    g = applyAction(g, 0, { type: 'move', gid, to: 'battlefield', x: 50, y: 50 }, 9);
+    expect(g.cards[gid]).toMatchObject({ counters: 2, ptCounters: { power: 1, toughness: 2 } }); // repositioning keeps them
+    g = applyAction(g, 0, { type: 'move', gid, to: 'graveyard' }, 10);
+    expect(g.cards[gid]).toMatchObject({ counters: 0, ptCounters: { power: 0, toughness: 0 } });
   });
 
   it('only works on your own battlefield cards', () => {
     const { g, gid } = onField();
-    expect(() => applyAction(g, 1, { type: 'counters', gid, delta: 1 }, 7)).toThrow('Card is not on the battlefield');
+    expect(() => applyAction(g, 1, { type: 'ptCounters', gid, power: 1, toughness: 1 }, 7)).toThrow('Card is not on the battlefield');
     const inHand = g.players[0].zones.hand[0];
     expect(() => applyAction(g, 0, { type: 'counters', gid: inHand, delta: 1 }, 7)).toThrow('Card is not on the battlefield');
-    expect(() => parseAction({ type: 'counters', gid, delta: 0 })).toThrow(GameError);
+    expect(() => applyAction(g, 0, { type: 'ptCounters', gid: inHand, power: 1, toughness: 1 }, 7)).toThrow('Card is not on the battlefield');
+  });
+
+  it('rejects bad amounts', () => {
+    expect(() => parseAction({ type: 'counters', gid: 'g1', delta: 0 })).toThrow(GameError);
+    expect(parseAction({ type: 'ptCounters', gid: 'g1', power: 2, toughness: 0 })).toEqual({ type: 'ptCounters', gid: 'g1', power: 2, toughness: 0 });
+    for (const bad of [
+      { power: 0, toughness: 0 }, { power: 1.5, toughness: 1 }, { power: 100, toughness: 1 }, { power: '1', toughness: 1 }, { power: 1 },
+    ]) expect(() => parseAction({ type: 'ptCounters', gid: 'g1', ...bad })).toThrow(GameError);
   });
 });
 
@@ -351,6 +387,30 @@ describe('tokens', () => {
     expect(make(g).players[0].zones.battlefield).toEqual(['t2']); // ids are never reused
   });
 
+  it('can have a description and no power or toughness', () => {
+    const g = applyAction(build(), 0, { type: 'token', name: 'Treasure', description: 'Sacrifice: add one mana.' }, 6);
+    expect(g.cards.t1.token).toEqual({});
+    expect(g.cards.t1.card).toMatchObject({ name: 'Treasure', oracleText: 'Sacrifice: add one mana.', typeLine: 'Token' });
+    expect(g.log.at(-1)!.text).toBe('Player0 created a Treasure token');
+    expect(gameViewFor(g, 1, [true, true]).opp.battlefield[0].card.oracleText).toBe('Sacrifice: add one mana.');
+  });
+
+  it('shows power and toughness in the type line when present', () => {
+    const g = make();
+    expect(g.cards.t1.card.typeLine).toBe('Token — 1/1');
+    expect(g.cards.t1.card.oracleText).toBe('');
+  });
+
+  it('validates the optional fields', () => {
+    expect(parseAction({ type: 'token', name: 'Treasure', description: ' ', power: ' ', toughness: '' }))
+      .toEqual({ type: 'token', name: 'Treasure' });
+    expect(() => parseAction({ type: 'token', name: 'A', power: '1' })).toThrow(GameError);
+    expect(() => parseAction({ type: 'token', name: 'A', toughness: '1' })).toThrow(GameError);
+    expect(() => parseAction({ type: 'token', name: 'A', description: 'x'.repeat(301) })).toThrow(GameError);
+    expect(() => parseAction({ type: 'token', name: 'A', description: 5 })).toThrow(GameError);
+    expect(() => parseAction({ type: 'token', power: '1', toughness: '1' })).toThrow(GameError);
+  });
+
   it('validates name and power/toughness', () => {
     expect(parseAction({ type: 'token', name: '  Spirit ', power: '*', toughness: 'X' }))
       .toEqual({ type: 'token', name: 'Spirit', power: '*', toughness: 'X' });
@@ -385,12 +445,11 @@ describe('library window', () => {
     expect(() => applyAction(g, 0, { type: 'searchLibrary' }, 9)).toThrow('Library is empty');
   });
 
-  it('search shows the whole library sorted by name, hiding its order', () => {
+  it('search shows the whole library in its real order', () => {
     const g = applyAction(build(), 0, { type: 'searchLibrary' }, 6);
     const cards = gameViewFor(g, 0, [true, true]).me.peek!.cards;
     expect(cards).toHaveLength(33);
-    const names = cards.map((c) => c.card.name);
-    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    expect(cards.map((c) => c.gid)).toEqual(g.players[0].zones.library);
     expect(g.log.at(-1)!.text).toBe('Player0 searched their library');
   });
 
@@ -440,7 +499,7 @@ describe('library window', () => {
     expect(g.log.at(-1)!.text).toBe(`Player0 moved ${g.cards[gid].card.name} to the bottom of their library`);
   });
 
-  it('closes on close, shuffle and mulligan, and stays open through other actions', () => {
+  it('closes on close and shuffle, and stays open through other actions', () => {
     const open = applyAction(build(), 0, { type: 'searchTop', count: 2 }, 6);
     const [top, second] = open.players[0].zones.library;
     const closed = applyAction(open, 0, { type: 'closeLibrary' }, 7);
@@ -448,7 +507,6 @@ describe('library window', () => {
     expect(closed.log).toHaveLength(open.log.length);
     expect(() => applyAction(closed, 0, { type: 'move', gid: top, to: 'hand' }, 8)).toThrow('Card is not available');
     expect(gameViewFor(applyAction(open, 0, { type: 'shuffle' }, 7), 0, [true, true]).me.peek).toBeNull();
-    expect(gameViewFor(applyAction(open, 0, { type: 'mulligan' }, 7), 0, [true, true]).me.peek).toBeNull();
     const drawn = applyAction(open, 0, { type: 'draw', count: 1 }, 7);
     expect(gameViewFor(drawn, 0, [true, true]).me.peek?.cards.map((c) => c.gid)).toEqual([second]);
   });
@@ -457,5 +515,96 @@ describe('library window', () => {
     expect(parseAction({ type: 'searchTop', count: 99 })).toEqual({ type: 'searchTop', count: 99 });
     expect(() => parseAction({ type: 'searchTop', count: 0 })).toThrow(GameError);
     expect(() => parseAction({ type: 'searchTop', count: 100 })).toThrow(GameError);
+  });
+});
+
+describe('face-down cards', () => {
+  const setup = () => {
+    const g = build();
+    const gid = g.players[0].zones.hand[0];
+    return { g, gid, name: g.cards[gid].card.name };
+  };
+  const down = (g: ReturnType<typeof build>, gid: string) => applyAction(g, 0, { type: 'flip', gid }, 6);
+
+  it('keeps a flipped card face down when it is moved to the battlefield', () => {
+    const { g, gid } = setup();
+    const next = applyAction(down(g, gid), 0, { type: 'move', gid, to: 'battlefield', x: 20, y: 30 }, 7);
+    expect(next.cards[gid]).toMatchObject({ faceDown: true, x: 20, y: 30 });
+  });
+
+  it('hides everything about the card from the opponent but not from the owner', () => {
+    const { g, gid, name } = setup();
+    const next = applyAction(down(g, gid), 0, { type: 'move', gid, to: 'battlefield', x: 20, y: 30 }, 7);
+    const mine = gameViewFor(next, 0, [true, true]).me.battlefield[0];
+    expect(mine).toMatchObject({ faceDown: true, card: { name } });
+    expect(mine.card.imageUrl).toBe(next.cards[gid].card.imageUrl);
+    const theirs = gameViewFor(next, 1, [true, true]).opp.battlefield[0];
+    expect(theirs).toMatchObject({ gid, faceDown: true, x: 20, y: 30 });
+    expect(theirs.card.name).toBe('Face-down card');
+    expect(theirs.card.imageUrl).toBe('');
+    expect(theirs.card.scryfallId).toBe('');
+    // the opponent's own hand may hold the same printing, so only their view of this player is checked
+    const seen = JSON.stringify(gameViewFor(next, 1, [true, true]).opp);
+    expect(seen).not.toContain(next.cards[gid].card.scryfallId);
+    expect(seen).not.toContain(`"${next.cards[gid].card.name}"`);
+  });
+
+  it('hides a face-down token and face-down cards in public piles', () => {
+    let g = applyAction(build(), 0, { type: 'token', name: 'Goblin', power: '1', toughness: '1' }, 6);
+    g = applyAction(g, 0, { type: 'flip', gid: 't1' }, 7);
+    const view = gameViewFor(g, 1, [true, true]);
+    expect(view.opp.battlefield[0].token).toBeUndefined();
+    expect(JSON.stringify(view.opp.battlefield)).not.toContain('Goblin');
+    const gid = g.players[0].zones.hand[0];
+    g = applyAction(applyAction(g, 0, { type: 'flip', gid }, 8), 0, { type: 'move', gid, to: 'exile' }, 9);
+    expect(gameViewFor(g, 1, [true, true]).opp.exile[0].card.name).toBe('Face-down card');
+  });
+
+  it('never names a face-down card in the log, until it is flipped up in public', () => {
+    const { g, gid, name } = setup();
+    let next = down(g, gid);
+    expect(next.log).toHaveLength(g.log.length); // flipping in hand is private
+    next = applyAction(next, 0, { type: 'move', gid, to: 'battlefield', x: 1, y: 1 }, 7);
+    expect(next.log.at(-1)!.text).toBe('Player0 moved a face-down card to battlefield');
+    next = applyAction(next, 0, { type: 'tap', gid, tapped: true }, 8);
+    expect(next.log.at(-1)!.text).toBe('Player0 tapped a face-down card');
+    next = applyAction(next, 0, { type: 'counters', gid, delta: 1 }, 9);
+    expect(next.log.at(-1)!.text).toBe('Player0 changed the counters on a face-down card');
+    next = applyAction(next, 0, { type: 'ptCounters', gid, power: 2, toughness: 1 }, 9);
+    expect(next.log.at(-1)!.text).toBe('Player0 changed the counters on a face-down card');
+    // the owner sees the counters; the opponent sees none until the card is flipped up
+    expect(gameViewFor(next, 0, [true, true]).me.battlefield[0]).toMatchObject({ counters: 1, ptCounters: { power: 2, toughness: 1 } });
+    expect(gameViewFor(next, 1, [true, true]).opp.battlefield[0]).toMatchObject({ counters: 0, ptCounters: { power: 0, toughness: 0 } });
+    expect(next.log.map((l) => l.text).join()).not.toContain(name);
+    next = down(next, gid);
+    expect(next.cards[gid].faceDown).toBe(false);
+    expect(next.log.at(-1)!.text).toBe(`Player0 flipped ${name} face up`);
+    expect(gameViewFor(next, 1, [true, true]).opp.battlefield[0]).toMatchObject({
+      card: { name }, counters: 1, ptCounters: { power: 2, toughness: 1 },
+    });
+    next = down(next, gid);
+    expect(next.log.at(-1)!.text).toBe('Player0 flipped a card face down');
+  });
+
+  it('only lets the owner flip, and only cards they can reach', () => {
+    const { g, gid } = setup();
+    expect(() => applyAction(g, 1, { type: 'flip', gid }, 6)).toThrow('Card is not available');
+    const top = g.players[0].zones.library[0];
+    expect(() => applyAction(g, 0, { type: 'flip', gid: top }, 6)).toThrow('Card is not available');
+    const open = applyAction(g, 0, { type: 'searchTop', count: 1 }, 6);
+    const flipped = applyAction(open, 0, { type: 'flip', gid: top }, 7);
+    expect(flipped.cards[top].faceDown).toBe(true);
+    expect(() => parseAction({ type: 'flip' })).toThrow(GameError);
+  });
+
+  it('comes back face up after returning to the library', () => {
+    const { g, gid } = setup();
+    const back = applyAction(down(g, gid), 0, { type: 'move', gid, to: 'library' }, 7);
+    expect(back.cards[gid].faceDown).toBe(false);
+  });
+
+  it('does not reveal deck position through card ids', () => {
+    const first = (seed: number) => build(seed).cards.g1.card.name;
+    expect(new Set([1, 2, 3, 4, 5, 6, 7, 8].map(first)).size).toBeGreaterThan(1);
   });
 });

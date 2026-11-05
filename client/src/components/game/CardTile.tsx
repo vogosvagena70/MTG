@@ -12,6 +12,9 @@ interface Props {
   onContextMenu?: (e: MouseEvent) => void;
 }
 
+const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+const ptLabel = (pt: GameCard['ptCounters']) => `${signed(pt.power)}/${signed(pt.toughness)}`;
+
 // A draggable card face. Not a <button>, so native drag works in all browsers.
 export function CardTile({ gc, mine, style, className, onHover, onDoubleClick, onContextMenu }: Props) {
   const onDragStart = (e: DragEvent) => {
@@ -35,11 +38,14 @@ export function CardTile({ gc, mine, style, className, onHover, onDoubleClick, o
       onMouseEnter={(e) => onHover?.(hoverTargetFrom(gc.card, e.currentTarget))}
       onMouseLeave={() => onHover?.(null)}
     >
-      {gc.token ? (
+      {gc.faceDown ? (
+        <span className="card-back" aria-label="Face-down card" />
+      ) : gc.token ? (
         <span className="token-face">
           <span className="token-name">{gc.card.name}</span>
           <span className="token-type">Token</span>
-          <span className="token-pt">{gc.token.power}/{gc.token.toughness}</span>
+          {gc.card.oracleText && <span className="token-description">{gc.card.oracleText}</span>}
+          {gc.token.power && <span className="token-pt">{gc.token.power}/{gc.token.toughness}</span>}
         </span>
       ) : gc.card.imageUrl ? (
         <img src={gc.card.imageUrl} alt={gc.card.name} draggable={false} />
@@ -47,8 +53,11 @@ export function CardTile({ gc, mine, style, className, onHover, onDoubleClick, o
         <span className="card-fallback">{gc.card.name}</span>
       )}
       {!!gc.counters && (
-        <span className={`counter-badge${gc.counters < 0 ? ' negative' : ''}`} aria-label={`${gc.counters} counters`}>
-          {gc.counters > 0 ? `+${gc.counters}` : gc.counters}
+        <span className="counter-badge" aria-label={`${gc.counters} counters`}>{gc.counters}</span>
+      )}
+      {(gc.ptCounters.power !== 0 || gc.ptCounters.toughness !== 0) && (
+        <span className={`counter-badge pt${gc.ptCounters.power <= 0 && gc.ptCounters.toughness <= 0 ? ' negative' : ''}`}>
+          {ptLabel(gc.ptCounters)}
         </span>
       )}
     </div>

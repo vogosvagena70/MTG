@@ -1,4 +1,4 @@
-import type { GameAction, Zone } from '@mtg/shared';
+import type { GameAction, GameCard, Zone } from '@mtg/shared';
 import { appendLog, GameError, shuffleInPlace, type GameState, type PlayerState } from './state';
 
 const ZONES: readonly Zone[] = ['library', 'hand', 'battlefield', 'graveyard', 'exile'];
@@ -32,19 +32,36 @@ export function parseAction(raw: unknown): GameAction {
     case 'tap':
       if (typeof r.gid !== 'string' || typeof r.tapped !== 'boolean') throw bad();
       return { type: 'tap', gid: r.gid, tapped: r.tapped };
+    case 'flip':
+      if (typeof r.gid !== 'string') throw bad();
+      return { type: 'flip', gid: r.gid };
     case 'token': {
-      const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-      const name = text(r.name);
-      const power = text(r.power);
-      const toughness = text(r.toughness);
-      if (!name || name.length > TOKEN_NAME_MAX || !power || power.length > TOKEN_PT_MAX || !toughness || toughness.length > TOKEN_PT_MAX) {
-        throw bad();
-      }
-      return { type: 'token', name, power, toughness };
+      const text = (v: unknown, max: number) => {
+        if (v === undefined) return '';
+        if (typeof v !== 'string' || v.trim().length > max) throw bad();
+        return v.trim();
+      };
+      const name = text(r.name, TOKEN_NAME_MAX);
+      const description = text(r.description, TOKEN_DESCRIPTION_MAX);
+      const power = text(r.power, TOKEN_PT_MAX);
+      const toughness = text(r.toughness, TOKEN_PT_MAX);
+      if (!name || !power !== !toughness) throw bad();
+      return {
+        type: 'token',
+        name,
+        ...(description ? { description } : {}),
+        ...(power ? { power, toughness } : {}),
+      };
     }
     case 'counters':
       if (typeof r.gid !== 'string' || !isInt(r.delta) || r.delta === 0 || r.delta < -20 || r.delta > 20) throw bad();
       return { type: 'counters', gid: r.gid, delta: r.delta };
+    case 'ptCounters': {
+      const inRange = (v: unknown): v is number => isInt(v) && Math.abs(v) <= MAX_PT_STEP;
+      if (typeof r.gid !== 'string' || !inRange(r.power) || !inRange(r.toughness)) throw bad();
+      if (r.power === 0 && r.toughness === 0) throw bad();
+      return { type: 'ptCounters', gid: r.gid, power: r.power, toughness: r.toughness };
+    }
     case 'life':
       if (!isInt(r.delta) || r.delta === 0 || r.delta < -20 || r.delta > 20) throw bad();
       return { type: 'life', delta: r.delta };
@@ -55,7 +72,6 @@ export function parseAction(raw: unknown): GameAction {
     case 'closeLibrary':
     case 'untapAll':
     case 'shuffle':
-    case 'mulligan':
     case 'concede':
       return { type: r.type };
     default:
@@ -64,9 +80,15 @@ export function parseAction(raw: unknown): GameAction {
 }
 
 export const MAX_SEARCH_TOP = 99;
+const MAX_PT_STEP = 99;
+const MAX_PT_TOTAL = 999;
 export const TOKEN_NAME_MAX = 30;
 export const TOKEN_PT_MAX = 3;
+export const TOKEN_DESCRIPTION_MAX = 300;
 const MAX_TOKENS = 200;
+
+/** How a card is named in the log, which both players read. */
+const logName = (card: GameCard) => (card.faceDown ? 'a face-down card' : card.card.name);
 
 const clamp = (n: number) => Math.min(100, Math.max(0, n));
 
@@ -127,7 +149,9 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
         // tokens cease to exist when they leave the battlefield
         const { [action.gid]: _gone, ...rest } = cards;
         cards = rest;
-        text = `${me.name}'s ${card.card.name} token left the battlefield`;
+        text = card.faceDown
+          ? `${me.name}'s face-down token left the battlefield`
+          : `${me.name}'s ${card.card.name} token left the battlefield`;
         break;
       }
       if (action.to === 'library') {
@@ -139,10 +163,12 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
         zones[action.to].push(action.gid);
       }
       if (action.to === 'battlefield') {
-        setCard(action.gid, { x: clamp(action.x ?? 50), y: clamp(action.y ?? 50), tapped: false, counters: 0 });
-      } else if (card.tapped || card.counters) {
-        setCard(action.gid, { tapped: false, counters: 0 });
+        setCard(action.gid, { x: clamp(action.x ?? 50), y: clamp(action.y ?? 50), tapped: false, counters: 0, ptCounters: { power: 0, toughness: 0 } });
+      } else if (card.tapped || card.counters || card.ptCounters.power || card.ptCounters.toughness) {
+        setCard(action.gid, { tapped: false, counters: 0, ptCounters: { power: 0, toughness: 0 } });
       }
+      // a card returned to the library is hidden anyway, so it comes back face up when drawn
+      if (action.to === 'library' && from !== 'library' && card.faceDown) setCard(action.gid, { faceDown: false });
       // the opponent never learns the name of a card that stays hidden
       if (action.to === 'library' && from === 'hand') {
         text = `${me.name} put a card from their hand ${action.bottom ? 'on the bottom' : 'on top'} of their library`;
@@ -151,9 +177,9 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
       } else if (action.to === 'hand' && from === 'library') {
         text = `${me.name} put a card from their library into their hand`;
       } else if (action.to === 'library' && action.bottom) {
-        text = `${me.name} moved ${card.card.name} to the bottom of their library`;
+        text = `${me.name} moved ${logName(card)} to the bottom of their library`;
       } else {
-        text = `${me.name} moved ${card.card.name} to ${action.to}`;
+        text = `${me.name} moved ${logName(card)} to ${action.to}`;
       }
       break;
     }
@@ -163,25 +189,39 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
         throw new GameError('Card is not on the battlefield');
       }
       setCard(action.gid, { tapped: action.tapped });
-      text = `${me.name} ${action.tapped ? 'tapped' : 'untapped'} ${card.card.name}`;
+      text = `${me.name} ${action.tapped ? 'tapped' : 'untapped'} ${logName(card)}`;
+      break;
+    }
+    case 'flip': {
+      const from = findZone({ ...me, zones }, action.gid, peek);
+      const card = cards[action.gid];
+      if (!from || !card || card.owner !== seat) throw new GameError('Card is not available');
+      setCard(action.gid, { faceDown: !card.faceDown });
+      // flipping a card in your hand or library is nobody else's business
+      if (from !== 'hand' && from !== 'library') {
+        text = card.faceDown
+          ? `${me.name} flipped ${card.card.name} face up`
+          : `${me.name} flipped a card face down`;
+      }
       break;
     }
     case 'token': {
       if (zones.battlefield.filter((g) => cards[g].token).length >= MAX_TOKENS) throw new GameError('Too many tokens');
       const gid = `t${++tokenCount}`;
+      const stats = action.power ? `${action.power}/${action.toughness}` : null;
       cards = {
         ...cards,
         [gid]: {
-          gid, owner: seat, tapped: false, x: 50, y: 50, counters: 0,
-          token: { power: action.power, toughness: action.toughness },
+          gid, owner: seat, tapped: false, x: 50, y: 50, counters: 0, ptCounters: { power: 0, toughness: 0 },
+          token: stats ? { power: action.power, toughness: action.toughness } : {},
           card: {
             instanceId: '', scryfallId: 'token', name: action.name, manaCost: '', manaValue: 0, colors: [],
-            typeLine: 'Token Creature', oracleText: '', rarity: 'common', imageUrl: '',
+            typeLine: stats ? `Token — ${stats}` : 'Token', oracleText: action.description ?? '', rarity: 'common', imageUrl: '',
           },
         },
       };
       zones.battlefield.push(gid);
-      text = `${me.name} created a ${action.power}/${action.toughness} ${action.name} token`;
+      text = stats ? `${me.name} created a ${stats} ${action.name} token` : `${me.name} created a ${action.name} token`;
       break;
     }
     case 'counters': {
@@ -189,9 +229,27 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
       if (!card || card.owner !== seat || !zones.battlefield.includes(action.gid)) {
         throw new GameError('Card is not on the battlefield');
       }
-      const old = card.counters ?? 0;
-      setCard(action.gid, { counters: old + action.delta });
-      text = `${me.name}: ${card.card.name} counters ${old} → ${old + action.delta}`;
+      const value = card.counters + action.delta;
+      if (value < 0) throw new GameError('No counters to remove');
+      setCard(action.gid, { counters: value });
+      text = card.faceDown
+        ? `${me.name} changed the counters on a face-down card`
+        : `${me.name}: ${card.card.name} counters ${card.counters} → ${value}`;
+      break;
+    }
+    case 'ptCounters': {
+      const card = cards[action.gid];
+      if (!card || card.owner !== seat || !zones.battlefield.includes(action.gid)) {
+        throw new GameError('Card is not on the battlefield');
+      }
+      const power = card.ptCounters.power + action.power;
+      const toughness = card.ptCounters.toughness + action.toughness;
+      if (Math.abs(power) > MAX_PT_TOTAL || Math.abs(toughness) > MAX_PT_TOTAL) throw new GameError('Too many counters');
+      setCard(action.gid, { ptCounters: { power, toughness } });
+      const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+      text = card.faceDown
+        ? `${me.name} changed the counters on a face-down card`
+        : `${me.name}: ${card.card.name} is now ${signed(power)}/${signed(toughness)}`;
       break;
     }
     case 'untapAll':
@@ -202,14 +260,6 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
       shuffleInPlace(zones.library, state.rng);
       peek = undefined;
       text = `${me.name} shuffled their library`;
-      break;
-    case 'mulligan':
-      zones.library.push(...zones.hand);
-      zones.hand = [];
-      shuffleInPlace(zones.library, state.rng);
-      peek = undefined;
-      drawN(7);
-      text = `${me.name} took a mulligan`;
       break;
     case 'life': {
       const old = life;

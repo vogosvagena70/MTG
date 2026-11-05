@@ -87,10 +87,14 @@ export interface GameCard {
   tapped: boolean;
   x: number;
   y: number;
-  /** A plain counter tally on a battlefield card (may be negative); purely a marker, no rules effect. */
+  /** Regular counters on a battlefield card (loyalty, charge, ...), never below 0. A marker with no rules effect. */
   counters: number;
+  /** Running power/toughness counter totals, e.g. +2/+0. A marker: the card's stats do not change. */
+  ptCounters: { power: number; toughness: number };
   /** Set for player-made tokens (no image); a token ceases to exist when it leaves the battlefield. */
-  token?: { power: string; toughness: string };
+  token?: { power?: string; toughness?: string };
+  /** Face down: the opponent gets a masked copy of this card, with no name, image, token details or counters. */
+  faceDown?: boolean;
 }
 
 export type GameAction =
@@ -100,13 +104,16 @@ export type GameAction =
   | { type: 'tap'; gid: string; tapped: boolean }
   | { type: 'untapAll' }
   | { type: 'shuffle' }
-  | { type: 'mulligan' }
   | { type: 'life'; delta: number }
   | { type: 'concede' }
-  /** Add (positive) or remove (negative) counters on one of your battlefield cards. */
+  /** Change the regular counters on one of your battlefield cards. */
   | { type: 'counters'; gid: string; delta: number }
-  /** Create a token on your battlefield. Power/toughness are short labels such as "2", "*" or "X". */
-  | { type: 'token'; name: string; power: string; toughness: string }
+  /** Add to the power/toughness counter totals of one of your battlefield cards (negative subtracts). */
+  | { type: 'ptCounters'; gid: string; power: number; toughness: number }
+  /** Create a token on your battlefield. Power/toughness are short labels ("2", "*", "X"): both or neither. */
+  | { type: 'token'; name: string; description?: string; power?: string; toughness?: string }
+  /** Turn one of your cards face down or back up. */
+  | { type: 'flip'; gid: string }
   /** Open your top `count` library cards (only you see them); they can then be moved like any other card. */
   | { type: 'searchTop'; count: number }
   /** Open your whole library. */
@@ -122,7 +129,7 @@ export interface GameView {
   log: { at: number; text: string }[];
   me: {
     name: string; life: number; hand: GameCard[]; battlefield: GameCard[]; graveyard: GameCard[]; exile: GameCard[]; libraryCount: number;
-    /** The open library window: top-X cards in library order, or the whole library sorted by name. */
+    /** The open library window, in library order (first = top): the top X cards or the whole library. */
     peek: { mode: 'top' | 'search'; cards: GameCard[] } | null;
   };
   opp: { name: string; life: number; connected: boolean; handCount: number; battlefield: GameCard[]; graveyard: GameCard[]; exile: GameCard[]; libraryCount: number };

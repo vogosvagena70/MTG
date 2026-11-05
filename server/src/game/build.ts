@@ -61,9 +61,12 @@ export function buildGame(input: {
   let n = 0;
   const players = input.players.map((p, seat) => {
     const library: string[] = [];
-    for (const card of decks[seat]) {
+    // ids are dealt in random order, so the id of a face-down card says nothing about what it is
+    const dealt = [...decks[seat]];
+    shuffleInPlace(dealt, rng);
+    for (const card of dealt) {
       const gid = `g${++n}`;
-      cards[gid] = { gid, card, owner: seat as 0 | 1, tapped: false, x: 50, y: 50, counters: 0 };
+      cards[gid] = { gid, card, owner: seat as 0 | 1, tapped: false, x: 50, y: 50, counters: 0, ptCounters: { power: 0, toughness: 0 } };
       library.push(gid);
     }
     return { playerId: p.playerId, name: p.name, life: 20, zones: { library, hand: [], battlefield: [], graveyard: [], exile: [] } } as PlayerState;

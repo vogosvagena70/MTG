@@ -36,7 +36,7 @@ export function appendLog(state: GameState, text: string, now: number): GameStat
   return [...state.log, { at: now, text }].slice(-MAX_LOG);
 }
 
-export function shuffleInPlace(ids: string[], rng: Rng): void {
+export function shuffleInPlace<T>(ids: T[], rng: Rng): void {
   for (let i = ids.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [ids[i], ids[j]] = [ids[j], ids[i]];

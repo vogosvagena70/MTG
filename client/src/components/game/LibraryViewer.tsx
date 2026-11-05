@@ -23,9 +23,15 @@ export function LibraryViewer({ mode, cards, onHover, onMenu, onClose, onShuffle
         </div>
       </div>
       <p className="muted library-hint">
-        {mode === 'top' ? 'Leftmost is the top card. ' : 'Sorted by name. '}Right-click a card to move it.
+        Leftmost is the top of your library. Right-click a card to move it.
       </p>
-      <div className="card-grid small">
+      <div
+        className="library-row"
+        onWheel={(e) => {
+          // a normal mouse wheel scrolls the row sideways
+          if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY;
+        }}
+      >
         {cards.map((gc) => (
           <CardTile
             key={gc.gid}

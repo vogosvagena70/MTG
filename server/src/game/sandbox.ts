@@ -1,6 +1,7 @@
-import { COLORS, type Card, type Color, type DeckSavePayload, type SetCards } from '@mtg/shared';
+import { COLORS, type Card, type Color, type DeckSavePayload, type GameAction, type SetCards } from '@mtg/shared';
 import { generatePack } from '../packs/generatePack';
 import { mulberry32, type Rng } from '../rng';
+import { applyAction } from './actions';
 import { buildGame, type BuildPlayer } from './build';
 import type { GameState } from './state';
 
@@ -39,5 +40,37 @@ export function buildSandboxGame(input: { set: SetCards; seed: number; now: numb
     { playerId: 'sandbox-you', name: input.name, ...me },
     { playerId: 'sandbox-opp', name: 'Test opponent', ...opp },
   ];
-  return buildGame({ id: input.id, roomId: '', seed: input.seed, now: input.now, basics: input.set.basics, players });
+  const game = buildGame({ id: input.id, roomId: '', seed: input.seed, now: input.now, basics: input.set.basics, players });
+  return { ...withOpponentBoard(game, input.now), log: game.log };
+}
+
+/** Puts sample cards on the idle opponent's side, so every way a card can look is on the table. */
+function withOpponentBoard(start: GameState, now: number): GameState {
+  const OPP = 1;
+  let g = start;
+  const act = (action: GameAction) => (g = applyAction(g, OPP, action, now));
+  // draw what gets played below, so the opponent still holds a full opening hand
+  act({ type: 'draw', count: 7 });
+  act({ type: 'draw', count: 3 });
+  const take = () => g.players[OPP].zones.hand[0];
+  const play = (
+    x: number,
+    y: number,
+    state: { tapped?: boolean; faceDown?: boolean; counters?: number; pt?: [number, number] } = {},
+  ) => {
+    const gid = take();
+    if (state.faceDown) act({ type: 'flip', gid });
+    act({ type: 'move', gid, to: 'battlefield', x, y });
+    if (state.tapped) act({ type: 'tap', gid, tapped: true });
+    if (state.counters) act({ type: 'counters', gid, delta: state.counters });
+    if (state.pt) act({ type: 'ptCounters', gid, power: state.pt[0], toughness: state.pt[1] });
+  };
+  play(20, 30, { counters: 3, pt: [2, 1] });
+  play(40, 30);
+  play(60, 30, { tapped: true });
+  play(80, 30, { tapped: true });
+  play(30, 70, { faceDown: true, counters: 1, pt: [-1, -1] });
+  play(70, 70, { faceDown: true, tapped: true });
+  for (const to of ['graveyard', 'graveyard', 'exile', 'exile'] as const) act({ type: 'move', gid: take(), to });
+  return g;
 }

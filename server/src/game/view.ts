@@ -1,19 +1,28 @@
-import type { GameCard, GameView } from '@mtg/shared';
+import type { Card, GameCard, GameView } from '@mtg/shared';
 import type { GameState, PlayerState } from './state';
 
 function cardsOf(state: GameState, gids: string[]): GameCard[] {
   return gids.map((gid) => ({ ...state.cards[gid] }));
 }
 
+const FACE_DOWN: Card = {
+  instanceId: '', scryfallId: '', name: 'Face-down card', manaCost: '', manaValue: 0, colors: [],
+  typeLine: '', oracleText: '', rarity: 'common', imageUrl: '',
+};
+
+/** What the opponent may see of a card: a face-down one keeps only its table position and tapped state. */
+function publicCardsOf(state: GameState, gids: string[]): GameCard[] {
+  return cardsOf(state, gids).map((gc) => {
+    if (!gc.faceDown) return gc;
+    const { token: _token, ...rest } = gc;
+    return { ...rest, card: FACE_DOWN, counters: 0, ptCounters: { power: 0, toughness: 0 } };
+  });
+}
+
 function peekFor(state: GameState, me: PlayerState): GameView['me']['peek'] {
   if (!me.peek || state.over) return null;
   const seen = new Set(me.peek.gids);
-  const cards = cardsOf(state, me.zones.library.filter((gid) => seen.has(gid)));
-  // a search never reveals library order: it is sorted by name, ids break ties
-  if (me.peek.mode === 'search') {
-    cards.sort((a, b) => a.card.name.localeCompare(b.card.name) || a.gid.localeCompare(b.gid));
-  }
-  return { mode: me.peek.mode, cards };
+  return { mode: me.peek.mode, cards: cardsOf(state, me.zones.library.filter((gid) => seen.has(gid))) };
 }
 
 export function gameViewFor(state: GameState, seat: 0 | 1, connected: [boolean, boolean]): GameView {
@@ -40,9 +49,9 @@ export function gameViewFor(state: GameState, seat: 0 | 1, connected: [boolean, 
       life: opp.life,
       connected: connected[1 - seat],
       handCount: opp.zones.hand.length,
-      battlefield: cardsOf(state, opp.zones.battlefield),
-      graveyard: cardsOf(state, opp.zones.graveyard),
-      exile: cardsOf(state, opp.zones.exile),
+      battlefield: publicCardsOf(state, opp.zones.battlefield),
+      graveyard: publicCardsOf(state, opp.zones.graveyard),
+      exile: publicCardsOf(state, opp.zones.exile),
       libraryCount: opp.zones.library.length,
     },
   };

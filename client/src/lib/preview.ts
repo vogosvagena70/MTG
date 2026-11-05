@@ -41,3 +41,20 @@ export function previewPosition(card: Box, viewport: Viewport): PreviewPosition 
     height,
   };
 }
+
+/** The Alt-hover preview: as large as fits, centered in the viewport. */
+export function focusedPreviewPosition(viewport: Viewport): PreviewPosition {
+  const width = Math.floor(Math.min(viewport.width - 2 * MARGIN, (viewport.height - 2 * MARGIN) / CARD_ASPECT));
+  const height = Math.round(width * CARD_ASPECT);
+  return {
+    left: Math.round((viewport.width - width) / 2),
+    top: Math.round((viewport.height - height) / 2),
+    width,
+    height,
+  };
+}
+
+/** Scryfall's sharper image of the same card, for the focused preview. */
+export function largeImageUrl(url: string): string {
+  return url.replace('/normal/', '/large/');
+}

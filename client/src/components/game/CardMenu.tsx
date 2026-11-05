@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Zone } from '@mtg/shared';
+import { useState } from 'react';
+import type { GameCard, Zone } from '@mtg/shared';
+import { ContextMenu } from './ContextMenu';
 
 const ITEMS: { to: Zone; bottom?: boolean; label: string }[] = [
   { to: 'hand', label: 'To hand' },
@@ -15,53 +16,59 @@ interface Props {
   y: number;
   onPick: (to: Zone, bottom?: boolean) => void;
   onClose: () => void;
-  /** Battlefield cards only: current counter tally and how to change it. The menu stays open. */
-  counters?: { value: number; onChange: (delta: 1 | -1) => void };
+  faceDown: boolean;
+  onFlip: () => void;
+  /** Battlefield cards only: current counters and how to change them. The menu stays open. */
+  counters?: {
+    plain: number;
+    pt: GameCard['ptCounters'];
+    onPlain: (delta: 1 | -1) => void;
+    onPt: (power: number, toughness: number) => void;
+  };
 }
 
-export function CardMenu({ x, y, onPick, onClose, counters }: Props) {
-  // keep the whole menu on screen, e.g. when right-clicking a card in the hand row
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ left: x, top: y });
-  useLayoutEffect(() => {
-    const r = ref.current?.getBoundingClientRect();
-    if (!r) return;
-    setPos({
-      left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
-      top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
-    });
-  }, [x, y]);
+const MAX_STEP = 99;
+const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+const validStep = (n: number) => Number.isInteger(n) && Math.abs(n) <= MAX_STEP;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    const onDown = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.('.card-menu')) onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onDown);
-    };
-  }, [onClose]);
-
+export function CardMenu({ x, y, onPick, onClose, faceDown, onFlip, counters }: Props) {
+  // how much + and − change the power/toughness counters; starts at 1/1 and can be any whole number
+  const [powerText, setPowerText] = useState('1');
+  const [toughnessText, setToughnessText] = useState('1');
+  const power = powerText.trim() === '' ? NaN : Number(powerText);
+  const toughness = toughnessText.trim() === '' ? NaN : Number(toughnessText);
+  const stepOk = validStep(power) && validStep(toughness) && (power !== 0 || toughness !== 0);
   return (
-    <div ref={ref} className="card-menu" style={pos} role="menu">
+    <ContextMenu x={x} y={y} onClose={onClose}>
       {ITEMS.map((i) => (
         <button key={i.label} type="button" role="menuitem" onClick={() => onPick(i.to, i.bottom)}>
           {i.label}
         </button>
       ))}
+      <button type="button" role="menuitem" className="card-menu-flip" onClick={onFlip}>
+        {faceDown ? 'Flip face up' : 'Flip face down'}
+      </button>
       {counters && (
-        <div className="card-menu-counters">
-          <span>Counters</span>
-          <button type="button" aria-label="Remove a counter" onClick={() => counters.onChange(-1)}>−</button>
-          <span className="card-menu-count">{counters.value}</span>
-          <button type="button" aria-label="Add a counter" onClick={() => counters.onChange(1)}>+</button>
-        </div>
+        <>
+          <div className="card-menu-counters">
+            <span>P/T counters</span>
+            <span className="card-menu-count">{signed(counters.pt.power)}/{signed(counters.pt.toughness)}</span>
+          </div>
+          <div className="card-menu-counters card-menu-pt">
+            <input type="number" value={powerText} aria-label="Power to add" onChange={(e) => setPowerText(e.target.value)} />
+            <span>/</span>
+            <input type="number" value={toughnessText} aria-label="Toughness to add" onChange={(e) => setToughnessText(e.target.value)} />
+            <button type="button" aria-label="Subtract these power and toughness counters" disabled={!stepOk} onClick={() => counters.onPt(-power, -toughness)}>−</button>
+            <button type="button" aria-label="Add these power and toughness counters" disabled={!stepOk} onClick={() => counters.onPt(power, toughness)}>+</button>
+          </div>
+          <div className="card-menu-counters">
+            <span>Counters</span>
+            <button type="button" aria-label="Remove a counter" disabled={counters.plain === 0} onClick={() => counters.onPlain(-1)}>−</button>
+            <span className="card-menu-count">{counters.plain}</span>
+            <button type="button" aria-label="Add a counter" onClick={() => counters.onPlain(1)}>+</button>
+          </div>
+        </>
       )}
-    </div>
+    </ContextMenu>
   );
 }
