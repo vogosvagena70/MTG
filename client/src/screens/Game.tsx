@@ -51,6 +51,8 @@ export function Game({ view, onLeave, leaveLabel = 'Back to room' }: Props) {
   const dismissHover = useCallback(() => setHover(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
   const closeLibraryMenu = useCallback(() => setLibraryMenu(null), []);
+  const [oppMenu, setOppMenu] = useState<{ gc: GameCard; x: number; y: number } | null>(null);
+  const closeOppMenu = useCallback(() => setOppMenu(null), []);
 
   const move = (gid: string, to: Zone, x?: number, y?: number, bottom?: boolean) => {
     const from = zoneOf(viewRef.current, gid);
@@ -133,10 +135,17 @@ export function Game({ view, onLeave, leaveLabel = 'Back to room' }: Props) {
         <ZonePile label="Exile" count={opp.exile.length} onClick={() => toggleViewer('opp', 'exile')} />
       </section>
 
-      <Battlefield cards={opp.battlefield} mine={false} onHover={setHover} />
+      <Battlefield
+        cards={opp.battlefield}
+        mine={false}
+        seat={(1 - view.you) as 0 | 1}
+        onHover={setHover}
+        onMenu={over ? undefined : (gc, x, y) => setOppMenu({ gc, x, y })}
+      />
       <Battlefield
         cards={me.battlefield}
         mine
+        seat={view.you}
         onHover={setHover}
         onDropCard={(gid, x, y) => move(gid, 'battlefield', x, y)}
         onToggleTap={toggleTap}
@@ -176,6 +185,10 @@ export function Game({ view, onLeave, leaveLabel = 'Back to room' }: Props) {
         <MechanicsMenu
           disabled={!!over}
           onToken={(t) => void send({ type: 'token', name: t.name, description: t.description, power: t.power, toughness: t.toughness })}
+          onLook={(kind, count) => {
+            setHover(null);
+            void send({ type: kind, count });
+          }}
         />
         {armed('concede', 'Concede', () => void send({ type: 'concede' }))}
         <button type="button" className="btn" onClick={() => setShowLog(!showLog)}>{showLog ? 'Hide log' : 'Show log'}</button>
@@ -203,8 +216,17 @@ export function Game({ view, onLeave, leaveLabel = 'Back to room' }: Props) {
         <LibraryViewer
           mode={me.peek.mode}
           cards={me.peek.cards}
+          topCount={me.peek.topCount}
           onHover={setHover}
           onMenu={(gc, x, y) => setMenu({ gc, x, y })}
+          onMove={(gid, to, bottom) => {
+            setHover(null);
+            move(gid, to, undefined, undefined, bottom);
+          }}
+          onArrange={(gids) => {
+            setHover(null);
+            void send({ type: 'arrangeLibrary', gids });
+          }}
           onClose={() => {
             setHover(null);
             void send({ type: 'closeLibrary' });
@@ -241,6 +263,21 @@ export function Game({ view, onLeave, leaveLabel = 'Back to room' }: Props) {
           </button>
         </ContextMenu>
       )}
+      {oppMenu && (
+        <ContextMenu x={oppMenu.x} y={oppMenu.y} onClose={closeOppMenu}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOppMenu(null);
+              setHover(null);
+              void send({ type: 'gainControl', gid: oppMenu.gc.gid });
+            }}
+          >
+            Gain control
+          </button>
+        </ContextMenu>
+      )}
       {menu && (
         <CardMenu
           x={menu.x}
@@ -253,6 +290,18 @@ export function Game({ view, onLeave, leaveLabel = 'Back to room' }: Props) {
             setMenu(null);
             void send({ type: 'flip', gid: menu.gc.gid });
           }}
+          giveControl={
+            menuCard && !over
+              ? {
+                  label: menuCard.owner === view.you ? `Give control to ${opp.name}` : `Return to ${opp.name}`,
+                  onGive: () => {
+                    setMenu(null);
+                    setHover(null);
+                    void send({ type: 'giveControl', gid: menuCard.gid });
+                  },
+                }
+              : undefined
+          }
           counters={
             menuCard && !over
               ? {

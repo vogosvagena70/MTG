@@ -10,13 +10,17 @@ interface Props {
   onHover?: (t: HoverTarget | null) => void;
   onDoubleClick?: () => void;
   onContextMenu?: (e: MouseEvent) => void;
+  /** Right-click works even though the card isn't yours (your opponent's battlefield). */
+  menuWhenTheirs?: boolean;
+  /** Controlled by someone other than its owner: shows a marker. */
+  borrowed?: boolean;
 }
 
 const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 const ptLabel = (pt: GameCard['ptCounters']) => `${signed(pt.power)}/${signed(pt.toughness)}`;
 
 // A draggable card face. Not a <button>, so native drag works in all browsers.
-export function CardTile({ gc, mine, style, className, onHover, onDoubleClick, onContextMenu }: Props) {
+export function CardTile({ gc, mine, style, className, onHover, onDoubleClick, onContextMenu, menuWhenTheirs, borrowed }: Props) {
   const onDragStart = (e: DragEvent) => {
     e.dataTransfer.setData('text/plain', gc.gid);
     e.dataTransfer.effectAllowed = 'move';
@@ -34,7 +38,7 @@ export function CardTile({ gc, mine, style, className, onHover, onDoubleClick, o
       draggable={!!mine}
       onDragStart={mine ? onDragStart : undefined}
       onDoubleClick={mine ? onDoubleClick : undefined}
-      onContextMenu={mine ? onContextMenu : undefined}
+      onContextMenu={mine || menuWhenTheirs ? onContextMenu : undefined}
       onMouseEnter={(e) => onHover?.(hoverTargetFrom(gc.card, e.currentTarget))}
       onMouseLeave={() => onHover?.(null)}
     >
@@ -51,6 +55,9 @@ export function CardTile({ gc, mine, style, className, onHover, onDoubleClick, o
         <img src={gc.card.imageUrl} alt={gc.card.name} draggable={false} />
       ) : (
         <span className="card-fallback">{gc.card.name}</span>
+      )}
+      {borrowed && (
+        <span className="control-badge" title="Controlled by the other player" aria-label="Controlled by the other player">⇄</span>
       )}
       {!!gc.counters && (
         <span className="counter-badge" aria-label={`${gc.counters} counters`}>{gc.counters}</span>

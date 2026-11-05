@@ -11,9 +11,11 @@ interface Props {
   onDropCard?: (gid: string, x: number, y: number) => void;
   onToggleTap?: (gc: GameCard) => void;
   onMenu?: (gc: GameCard, x: number, y: number) => void;
+  /** The seat whose side this is; cards owned by the other seat get a control marker. */
+  seat: 0 | 1;
 }
 
-export function Battlefield({ cards, mine, onHover, onDropCard, onToggleTap, onMenu }: Props) {
+export function Battlefield({ cards, mine, onHover, onDropCard, onToggleTap, onMenu, seat }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const drop = (e: DragEvent) => {
     e.preventDefault();
@@ -38,6 +40,8 @@ export function Battlefield({ cards, mine, onHover, onDropCard, onToggleTap, onM
           className="on-field"
           style={{ left: `${gc.x}%`, top: `${gc.y}%` }}
           onHover={onHover}
+          menuWhenTheirs={!!onMenu}
+          borrowed={gc.owner !== seat}
           onDoubleClick={() => onToggleTap?.(gc)}
           onContextMenu={(e) => {
             e.preventDefault();

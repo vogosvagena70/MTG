@@ -18,6 +18,8 @@ interface Props {
   onClose: () => void;
   faceDown: boolean;
   onFlip: () => void;
+  /** Battlefield cards only: hand the card to the other player's side. */
+  giveControl?: { label: string; onGive: () => void };
   /** Battlefield cards only: current counters and how to change them. The menu stays open. */
   counters?: {
     plain: number;
@@ -31,7 +33,7 @@ const MAX_STEP = 99;
 const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 const validStep = (n: number) => Number.isInteger(n) && Math.abs(n) <= MAX_STEP;
 
-export function CardMenu({ x, y, onPick, onClose, faceDown, onFlip, counters }: Props) {
+export function CardMenu({ x, y, onPick, onClose, faceDown, onFlip, giveControl, counters }: Props) {
   // how much + and − change the power/toughness counters; starts at 1/1 and can be any whole number
   const [powerText, setPowerText] = useState('1');
   const [toughnessText, setToughnessText] = useState('1');
@@ -48,6 +50,11 @@ export function CardMenu({ x, y, onPick, onClose, faceDown, onFlip, counters }: 
       <button type="button" role="menuitem" className="card-menu-flip" onClick={onFlip}>
         {faceDown ? 'Flip face up' : 'Flip face down'}
       </button>
+      {giveControl && (
+        <button type="button" role="menuitem" onClick={giveControl.onGive}>
+          {giveControl.label}
+        </button>
+      )}
       {counters && (
         <>
           <div className="card-menu-counters">

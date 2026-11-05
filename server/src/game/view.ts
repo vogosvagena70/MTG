@@ -22,7 +22,10 @@ function publicCardsOf(state: GameState, gids: string[]): GameCard[] {
 function peekFor(state: GameState, me: PlayerState): GameView['me']['peek'] {
   if (!me.peek || state.over) return null;
   const seen = new Set(me.peek.gids);
-  return { mode: me.peek.mode, cards: cardsOf(state, me.zones.library.filter((gid) => seen.has(gid))) };
+  const library = me.zones.library;
+  let topCount = 0;
+  while (topCount < library.length && seen.has(library[topCount])) topCount++;
+  return { mode: me.peek.mode, cards: cardsOf(state, library.filter((gid) => seen.has(gid))), topCount };
 }
 
 export function gameViewFor(state: GameState, seat: 0 | 1, connected: [boolean, boolean]): GameView {
