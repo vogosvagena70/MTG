@@ -52,7 +52,8 @@ The table is a free-play tabletop: players enforce the rules themselves.
 - Drag cards between your hand, battlefield and graveyard; drop on the battlefield to place a card where you want it.
 - Double-click a battlefield card, or hover it and press `T`, to tap or untap it.
 - Right-click any of your cards for a menu (To hand, To battlefield, To graveyard, To top of library).
-- Click your library to view it; right-click it to draw or shuffle. Use the strip for life, Untap all, Mechanics and Concede.
+- Click your library to view it; right-click it to draw or shuffle. Use the strip for life, Untap all, Mechanics (token, scry, surveil) and Concede.
+- Right-click an opponent's battlefield card to gain control of it; right-click it again on your side to return it. A card leaving the battlefield always goes to its owner's zones.
 - Click a graveyard pile to browse it; the log panel shows recent actions.
 - After a game ends, choose Back to room and challenge again for a rematch.
 

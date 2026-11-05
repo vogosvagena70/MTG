@@ -1,4 +1,4 @@
-import type { GameCard, Zone } from '@mtg/shared';
+import type { GameCard, PeekMode, Zone } from '@mtg/shared';
 import type { Rng } from '../rng';
 
 export interface PlayerState {
@@ -7,7 +7,7 @@ export interface PlayerState {
   life: number;
   zones: Record<Zone, string[]>; // gids; library[0] is the top
   /** Library cards this player is currently allowed to see and move; absent when no window is open. */
-  peek?: { mode: 'top' | 'search'; gids: string[] };
+  peek?: { mode: PeekMode; gids: string[] };
 }
 
 export interface GameState {

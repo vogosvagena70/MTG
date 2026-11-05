@@ -116,10 +116,26 @@ export type GameAction =
   | { type: 'flip'; gid: string }
   /** Open your top `count` library cards (only you see them); they can then be moved like any other card. */
   | { type: 'searchTop'; count: number }
+  /** Look at your top `count` cards to put each on the top or bottom (the window is labelled Scry). */
+  | { type: 'scry'; count: number }
+  /** Look at your top `count` cards to put each on top or into the graveyard (the window is labelled Surveil). */
+  | { type: 'surveil'; count: number }
+  /**
+   * Reorder the cards in your open library window. `gids` lists every card in the window in its new order; they
+   * swap among the library positions they already hold, so cards on top stay on top and cards on the bottom stay there.
+   */
+  | { type: 'arrangeLibrary'; gids: string[] }
+  /** Take one of your opponent's battlefield cards onto your side. It still belongs to them. */
+  | { type: 'gainControl'; gid: string }
+  /** Hand one of your battlefield cards to your opponent's side (back to its owner, or a gift). */
+  | { type: 'giveControl'; gid: string }
   /** Open your whole library. */
   | { type: 'searchLibrary' }
   /** Close the open library window. */
   | { type: 'closeLibrary' };
+
+/** What the open library window is for: the top X cards, the whole library, or a scry/surveil. */
+export type PeekMode = 'top' | 'search' | 'scry' | 'surveil';
 
 export interface GameView {
   gameId: string;
@@ -130,7 +146,12 @@ export interface GameView {
   me: {
     name: string; life: number; hand: GameCard[]; battlefield: GameCard[]; graveyard: GameCard[]; exile: GameCard[]; libraryCount: number;
     /** The open library window, in library order (first = top): the top X cards or the whole library. */
-    peek: { mode: 'top' | 'search'; cards: GameCard[] } | null;
+    peek: {
+      mode: PeekMode;
+      cards: GameCard[];
+      /** How many of `cards` sit together at the very top of the library; any after them were put further down. */
+      topCount: number;
+    } | null;
   };
   opp: { name: string; life: number; connected: boolean; handCount: number; battlefield: GameCard[]; graveyard: GameCard[]; exile: GameCard[]; libraryCount: number };
 }

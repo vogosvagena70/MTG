@@ -518,6 +518,83 @@ describe('library window', () => {
   });
 });
 
+describe('scry and surveil', () => {
+  it('scry opens the top X privately, logs the count, and lets cards go to the bottom', () => {
+    let g = applyAction(build(), 0, { type: 'scry', count: 2 }, 6);
+    const [a, b] = g.players[0].zones.library;
+    const view = gameViewFor(g, 0, [true, true]);
+    expect(view.me.peek?.mode).toBe('scry');
+    expect(view.me.peek?.cards.map((c) => c.gid)).toEqual([a, b]);
+    expect(g.log.at(-1)!.text).toBe('Player0 scried 2');
+    const oppView = JSON.stringify(gameViewFor(g, 1, [true, true]));
+    for (const gid of [a, b]) expect(oppView).not.toContain(`"${gid}"`);
+    g = applyAction(g, 0, { type: 'move', gid: a, to: 'library', bottom: true }, 7);
+    expect(g.players[0].zones.library[0]).toBe(b);
+    expect(g.players[0].zones.library.at(-1)).toBe(a);
+    expect(g.log.at(-1)!.text).toBe('Player0 moved a card to the bottom of their library');
+    let peek = gameViewFor(g, 0, [true, true]).me.peek!;
+    expect(peek.cards.map((c) => c.gid)).toEqual([b, a]);
+    expect(peek.topCount).toBe(1); // a is now on the bottom
+    g = applyAction(g, 0, { type: 'move', gid: a, to: 'library' }, 8);
+    peek = gameViewFor(g, 0, [true, true]).me.peek!;
+    expect(peek.cards.map((c) => c.gid)).toEqual([a, b]);
+    expect(peek.topCount).toBe(2);
+    g = applyAction(g, 0, { type: 'closeLibrary' }, 8);
+    expect(gameViewFor(g, 0, [true, true]).me.peek).toBeNull();
+  });
+
+  it('surveil opens the top X and names cards put into the graveyard', () => {
+    let g = applyAction(build(), 0, { type: 'surveil', count: 99 }, 6);
+    expect(gameViewFor(g, 0, [true, true]).me.peek?.mode).toBe('surveil');
+    expect(g.log.at(-1)!.text).toBe('Player0 surveilled 33'); // capped at what is left
+    const top = g.players[0].zones.library[0];
+    g = applyAction(g, 0, { type: 'move', gid: top, to: 'graveyard' }, 7);
+    expect(g.log.at(-1)!.text).toBe(`Player0 moved ${g.cards[top].card.name} to graveyard`);
+  });
+
+  it('rearranges window cards among the positions they hold, top and bottom separately', () => {
+    let g = applyAction(build(), 0, { type: 'scry', count: 4 }, 6);
+    const [a, b, c, d] = g.players[0].zones.library;
+    g = applyAction(g, 0, { type: 'move', gid: c, to: 'library', bottom: true }, 7);
+    g = applyAction(g, 0, { type: 'move', gid: d, to: 'library', bottom: true }, 8);
+    // window: a b on top, c d on the bottom
+    g = applyAction(g, 0, { type: 'arrangeLibrary', gids: [b, a, d, c] }, 9);
+    const lib = g.players[0].zones.library;
+    expect(lib.slice(0, 2)).toEqual([b, a]);
+    expect(lib.slice(-2)).toEqual([d, c]);
+    expect(lib).toHaveLength(33);
+    expect(g.log.at(-1)!.text).toBe('Player0 rearranged cards in their library');
+    expect(gameViewFor(g, 0, [true, true]).me.peek!.topCount).toBe(2);
+    const logged = g.log.length;
+    expect(applyAction(g, 0, { type: 'arrangeLibrary', gids: [b, a, d, c] }, 10).log).toHaveLength(logged);
+  });
+
+  it('only rearranges exactly the cards in the window', () => {
+    const base = build();
+    const [a, b, c] = base.players[0].zones.library;
+    expect(() => applyAction(base, 0, { type: 'arrangeLibrary', gids: [b, a] }, 6)).toThrow('not in your library window');
+    const g = applyAction(base, 0, { type: 'scry', count: 2 }, 6);
+    expect(() => applyAction(g, 0, { type: 'arrangeLibrary', gids: [b] }, 7)).toThrow('not in your library window');
+    expect(() => applyAction(g, 0, { type: 'arrangeLibrary', gids: [c, a] }, 7)).toThrow('not in your library window');
+    expect(() => applyAction(g, 1, { type: 'arrangeLibrary', gids: [b, a] }, 7)).toThrow('not in your library window');
+    expect(() => parseAction({ type: 'arrangeLibrary', gids: [a, a] })).toThrow(GameError);
+    expect(() => parseAction({ type: 'arrangeLibrary', gids: [] })).toThrow(GameError);
+    expect(() => parseAction({ type: 'arrangeLibrary', gids: 'a' })).toThrow(GameError);
+  });
+
+  it('rejects an empty library and bad counts', () => {
+    let g = build();
+    for (let i = 0; i < 5; i++) g = applyAction(g, 0, { type: 'draw', count: 7 }, 6);
+    expect(() => applyAction(g, 0, { type: 'scry', count: 1 }, 7)).toThrow('Library is empty');
+    expect(() => applyAction(g, 0, { type: 'surveil', count: 1 }, 7)).toThrow('Library is empty');
+    expect(parseAction({ type: 'scry', count: 3 })).toEqual({ type: 'scry', count: 3 });
+    for (const bad of [0, 100, 1.5, '2']) {
+      expect(() => parseAction({ type: 'scry', count: bad })).toThrow(GameError);
+      expect(() => parseAction({ type: 'surveil', count: bad })).toThrow(GameError);
+    }
+  });
+});
+
 describe('face-down cards', () => {
   const setup = () => {
     const g = build();
@@ -606,5 +683,86 @@ describe('face-down cards', () => {
   it('does not reveal deck position through card ids', () => {
     const first = (seed: number) => build(seed).cards.g1.card.name;
     expect(new Set([1, 2, 3, 4, 5, 6, 7, 8].map(first)).size).toBeGreaterThan(1);
+  });
+});
+
+describe('control', () => {
+  // seat 0 plays a card; seat 1 takes it
+  const stolen = () => {
+    let g = build();
+    const gid = g.players[0].zones.hand[0];
+    g = applyAction(g, 0, { type: 'move', gid, to: 'battlefield', x: 10, y: 20 }, 6);
+    g = applyAction(g, 0, { type: 'tap', gid, tapped: true }, 7);
+    g = applyAction(g, 1, { type: 'gainControl', gid }, 8);
+    return { g, gid };
+  };
+
+  it('moves the card to your side, keeping its state, and logs it', () => {
+    const { g, gid } = stolen();
+    expect(g.players[0].zones.battlefield).not.toContain(gid);
+    expect(g.players[1].zones.battlefield).toContain(gid);
+    expect(g.cards[gid]).toMatchObject({ owner: 0, tapped: true, x: 10, y: 20 });
+    expect(g.log.at(-1)!.text).toBe(`Player1 gained control of ${g.cards[gid].card.name}`);
+    expect(gameViewFor(g, 1, [true, true]).me.battlefield.map((c) => c.gid)).toContain(gid);
+    expect(gameViewFor(g, 0, [true, true]).opp.battlefield.map((c) => c.gid)).toContain(gid);
+  });
+
+  it('lets the controller, and only the controller, use it on the battlefield', () => {
+    let { g, gid } = stolen();
+    g = applyAction(g, 1, { type: 'tap', gid, tapped: false }, 9);
+    g = applyAction(g, 1, { type: 'counters', gid, delta: 2 }, 10);
+    g = applyAction(g, 1, { type: 'ptCounters', gid, power: 1, toughness: 1 }, 11);
+    g = applyAction(g, 1, { type: 'move', gid, to: 'battlefield', x: 70, y: 70 }, 12);
+    expect(g.cards[gid]).toMatchObject({ tapped: false, counters: 2, x: 70, y: 70 });
+    expect(() => applyAction(g, 0, { type: 'tap', gid, tapped: true }, 13)).toThrow('Card is not on the battlefield');
+    expect(() => applyAction(g, 0, { type: 'move', gid, to: 'hand' }, 13)).toThrow('Card is not available');
+  });
+
+  it("sends it to its owner's zone when it leaves the battlefield", () => {
+    const { g, gid } = stolen();
+    const name = g.cards[gid].card.name;
+    const dead = applyAction(g, 1, { type: 'move', gid, to: 'graveyard' }, 9);
+    expect(dead.players[0].zones.graveyard).toContain(gid);
+    expect(dead.players[1].zones.graveyard).not.toContain(gid);
+    expect(dead.players[1].zones.battlefield).not.toContain(gid);
+    expect(dead.log.at(-1)!.text).toBe(`Player1 moved ${name} to Player0's graveyard`);
+    const bounced = applyAction(g, 1, { type: 'move', gid, to: 'hand' }, 9);
+    expect(bounced.players[0].zones.hand).toContain(gid);
+    const tucked = applyAction(g, 1, { type: 'move', gid, to: 'library', bottom: true }, 9);
+    expect(tucked.players[0].zones.library.at(-1)).toBe(gid);
+    expect(tucked.players[1].zones.library).not.toContain(gid);
+    expect(tucked.log.at(-1)!.text).toBe(`Player1 moved ${name} to the bottom of Player0's library`);
+  });
+
+  it('gives control back, or gives your own card away', () => {
+    let { g, gid } = stolen();
+    g = applyAction(g, 1, { type: 'giveControl', gid }, 9);
+    expect(g.players[0].zones.battlefield).toContain(gid);
+    expect(g.players[1].zones.battlefield).not.toContain(gid);
+    expect(g.log.at(-1)!.text).toBe(`Player1 returned ${g.cards[gid].card.name} to Player0`);
+    g = applyAction(g, 0, { type: 'giveControl', gid }, 10);
+    expect(g.log.at(-1)!.text).toBe(`Player0 gave control of ${g.cards[gid].card.name} to Player1`);
+    expect(g.players[1].zones.battlefield).toContain(gid);
+  });
+
+  it('only takes battlefield cards, and only gives your own battlefield cards', () => {
+    const g = build();
+    const inHand = g.players[0].zones.hand[0];
+    expect(() => applyAction(g, 1, { type: 'gainControl', gid: inHand }, 6)).toThrow('Card is not on their battlefield');
+    const played = applyAction(g, 0, { type: 'move', gid: inHand, to: 'battlefield' }, 6);
+    expect(() => applyAction(played, 0, { type: 'gainControl', gid: inHand }, 7)).toThrow('Card is not on their battlefield');
+    expect(() => applyAction(played, 1, { type: 'giveControl', gid: inHand }, 7)).toThrow('Card is not on the battlefield');
+    expect(() => parseAction({ type: 'gainControl' })).toThrow(GameError);
+  });
+
+  it("hides a stolen face-down card from its owner but shows it to the new controller", () => {
+    let g = build();
+    const gid = g.players[0].zones.hand[0];
+    g = applyAction(g, 0, { type: 'flip', gid }, 6);
+    g = applyAction(g, 0, { type: 'move', gid, to: 'battlefield' }, 7);
+    g = applyAction(g, 1, { type: 'gainControl', gid }, 8);
+    expect(g.log.at(-1)!.text).toBe('Player1 gained control of a face-down card');
+    expect(gameViewFor(g, 0, [true, true]).opp.battlefield[0].card.name).toBe('Face-down card');
+    expect(gameViewFor(g, 1, [true, true]).me.battlefield.find((c) => c.gid === gid)!.card.name).toBe(g.cards[gid].card.name);
   });
 });

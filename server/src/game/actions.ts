@@ -68,6 +68,20 @@ export function parseAction(raw: unknown): GameAction {
     case 'searchTop':
       if (!isInt(r.count) || r.count < 1 || r.count > MAX_SEARCH_TOP) throw bad();
       return { type: 'searchTop', count: r.count };
+    case 'scry':
+    case 'surveil':
+      if (!isInt(r.count) || r.count < 1 || r.count > MAX_SEARCH_TOP) throw bad();
+      return { type: r.type, count: r.count };
+    case 'arrangeLibrary': {
+      const gids = r.gids;
+      if (!Array.isArray(gids) || gids.length === 0 || gids.length > MAX_ARRANGE) throw bad();
+      if (!gids.every((g): g is string => typeof g === 'string') || new Set(gids).size !== gids.length) throw bad();
+      return { type: 'arrangeLibrary', gids };
+    }
+    case 'gainControl':
+    case 'giveControl':
+      if (typeof r.gid !== 'string') throw bad();
+      return { type: r.type, gid: r.gid };
     case 'searchLibrary':
     case 'closeLibrary':
     case 'untapAll':
@@ -80,6 +94,7 @@ export function parseAction(raw: unknown): GameAction {
 }
 
 export const MAX_SEARCH_TOP = 99;
+const MAX_ARRANGE = 1000;
 const MAX_PT_STEP = 99;
 const MAX_PT_TOTAL = 999;
 export const TOKEN_NAME_MAX = 30;
@@ -111,6 +126,18 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
     graveyard: [...me.zones.graveyard],
     exile: [...me.zones.exile],
   };
+  const oppSeat = (1 - seat) as 0 | 1;
+  const them = state.players[oppSeat];
+  // the opponent's zones are copied only when an action touches them (control changes, returning a card to its owner)
+  let oppZones: Record<Zone, string[]> | null = null;
+  const theirZones = () =>
+    (oppZones ??= {
+      library: [...them.zones.library],
+      hand: [...them.zones.hand],
+      battlefield: [...them.zones.battlefield],
+      graveyard: [...them.zones.graveyard],
+      exile: [...them.zones.exile],
+    });
   let cards = state.cards;
   let life = me.life;
   let over: GameState['over'] = null;
@@ -137,8 +164,12 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
     case 'move': {
       const from = findZone({ ...me, zones }, action.gid, peek);
       const card = cards[action.gid];
-      if (!from || !card || card.owner !== seat) throw new GameError('Card is not available');
+      // your own cards, plus your opponent's cards you control on your battlefield
+      if (!from || !card || (card.owner !== seat && from !== 'battlefield')) throw new GameError('Card is not available');
       if (!ZONES.includes(action.to)) throw new GameError('Invalid action');
+      // a card leaving the battlefield goes to its owner's zones
+      const borrowed = card.owner !== seat && action.to !== 'battlefield';
+      const dest = borrowed ? theirZones() : zones;
       if (from === action.to && from !== 'battlefield' && from !== 'library') break; // no-op: nothing changes, nothing is logged
       if (from === 'battlefield' && action.to === 'battlefield') {
         setCard(action.gid, { x: clamp(action.x ?? 50), y: clamp(action.y ?? 50) });
@@ -155,12 +186,12 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
         break;
       }
       if (action.to === 'library') {
-        if (action.bottom) zones.library.push(action.gid);
-        else zones.library.unshift(action.gid);
+        if (action.bottom) dest.library.push(action.gid);
+        else dest.library.unshift(action.gid);
         // you know where you just put it, so it stays visible in an open window
-        if (peek && !peek.gids.includes(action.gid)) peek = { ...peek, gids: [...peek.gids, action.gid] };
+        if (!borrowed && peek && !peek.gids.includes(action.gid)) peek = { ...peek, gids: [...peek.gids, action.gid] };
       } else {
-        zones[action.to].push(action.gid);
+        dest[action.to].push(action.gid);
       }
       if (action.to === 'battlefield') {
         setCard(action.gid, { x: clamp(action.x ?? 50), y: clamp(action.y ?? 50), tapped: false, counters: 0, ptCounters: { power: 0, toughness: 0 } });
@@ -170,7 +201,10 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
       // a card returned to the library is hidden anyway, so it comes back face up when drawn
       if (action.to === 'library' && from !== 'library' && card.faceDown) setCard(action.gid, { faceDown: false });
       // the opponent never learns the name of a card that stays hidden
-      if (action.to === 'library' && from === 'hand') {
+      if (borrowed) {
+        const where = action.to === 'library' ? `the ${action.bottom ? 'bottom' : 'top'} of ${them.name}'s library` : `${them.name}'s ${action.to}`;
+        text = `${me.name} moved ${logName(card)} to ${where}`;
+      } else if (action.to === 'library' && from === 'hand') {
         text = `${me.name} put a card from their hand ${action.bottom ? 'on the bottom' : 'on top'} of their library`;
       } else if (action.to === 'library' && from === 'library') {
         text = `${me.name} moved a card to the ${action.bottom ? 'bottom' : 'top'} of their library`;
@@ -185,7 +219,7 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
     }
     case 'tap': {
       const card = cards[action.gid];
-      if (!card || card.owner !== seat || !zones.battlefield.includes(action.gid)) {
+      if (!card || !zones.battlefield.includes(action.gid)) {
         throw new GameError('Card is not on the battlefield');
       }
       setCard(action.gid, { tapped: action.tapped });
@@ -195,7 +229,7 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
     case 'flip': {
       const from = findZone({ ...me, zones }, action.gid, peek);
       const card = cards[action.gid];
-      if (!from || !card || card.owner !== seat) throw new GameError('Card is not available');
+      if (!from || !card || (card.owner !== seat && from !== 'battlefield')) throw new GameError('Card is not available');
       setCard(action.gid, { faceDown: !card.faceDown });
       // flipping a card in your hand or library is nobody else's business
       if (from !== 'hand' && from !== 'library') {
@@ -226,7 +260,7 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
     }
     case 'counters': {
       const card = cards[action.gid];
-      if (!card || card.owner !== seat || !zones.battlefield.includes(action.gid)) {
+      if (!card || !zones.battlefield.includes(action.gid)) {
         throw new GameError('Card is not on the battlefield');
       }
       const value = card.counters + action.delta;
@@ -239,7 +273,7 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
     }
     case 'ptCounters': {
       const card = cards[action.gid];
-      if (!card || card.owner !== seat || !zones.battlefield.includes(action.gid)) {
+      if (!card || !zones.battlefield.includes(action.gid)) {
         throw new GameError('Card is not on the battlefield');
       }
       const power = card.ptCounters.power + action.power;
@@ -272,6 +306,44 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
       peek = { mode: 'top', gids: zones.library.slice(0, action.count) };
       text = `${me.name} searched the top ${peek.gids.length} of their library`;
       break;
+    case 'scry':
+    case 'surveil':
+      if (zones.library.length === 0) throw new GameError('Library is empty');
+      peek = { mode: action.type, gids: zones.library.slice(0, action.count) };
+      text = `${me.name} ${action.type === 'scry' ? 'scried' : 'surveilled'} ${peek.gids.length}`;
+      break;
+    case 'arrangeLibrary': {
+      // only the cards in the open window, and all of them, so nothing unseen can be moved
+      const shown = new Set((peek?.gids ?? []).filter((g) => zones.library.includes(g)));
+      if (action.gids.length !== shown.size || !action.gids.every((g) => shown.has(g))) {
+        throw new GameError('Those cards are not in your library window');
+      }
+      const slots = zones.library.flatMap((g, i) => (shown.has(g) ? [i] : []));
+      const before = slots.map((i) => zones.library[i]);
+      if (before.every((g, i) => g === action.gids[i])) break; // same order: nothing to do or log
+      slots.forEach((slot, i) => (zones.library[slot] = action.gids[i]));
+      text = `${me.name} rearranged cards in their library`;
+      break;
+    }
+    case 'gainControl': {
+      const card = cards[action.gid];
+      if (!card || !them.zones.battlefield.includes(action.gid)) throw new GameError('Card is not on their battlefield');
+      const opp = theirZones();
+      opp.battlefield = opp.battlefield.filter((g) => g !== action.gid);
+      zones.battlefield.push(action.gid);
+      text = `${me.name} gained control of ${logName(card)}`;
+      break;
+    }
+    case 'giveControl': {
+      const card = cards[action.gid];
+      if (!card || !zones.battlefield.includes(action.gid)) throw new GameError('Card is not on the battlefield');
+      zones.battlefield = zones.battlefield.filter((g) => g !== action.gid);
+      theirZones().battlefield.push(action.gid);
+      text = card.owner === oppSeat
+        ? `${me.name} returned ${logName(card)} to ${them.name}`
+        : `${me.name} gave control of ${logName(card)} to ${them.name}`;
+      break;
+    }
     case 'searchLibrary':
       if (zones.library.length === 0) throw new GameError('Library is empty');
       peek = { mode: 'search', gids: [...zones.library] };
@@ -296,6 +368,7 @@ export function applyAction(state: GameState, seat: 0 | 1, action: GameAction, n
     peek = gids.length > 0 ? { ...peek, gids } : undefined;
   }
   players[seat] = { ...me, life, zones, peek };
+  if (oppZones) players[oppSeat] = { ...them, zones: oppZones };
   return {
     ...state,
     players,
